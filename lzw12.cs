@@ -1,4 +1,4 @@
-//Brad Arrington 2025
+// Bradford Arrington 2025
 using System;
 using System.IO;
 using System.IO.Compression;
@@ -6,6 +6,7 @@ using System.IO.Compression;
 partial class Compressor
 {
     public string CompressionName = "LZW 12 Bit Encoder";
+    public static string Usage = "in-file out-file\n\n";
     private const int BITS = 12;
     private const int MAX_CODE = (1 << BITS) - 1;
     private const int TABLE_SIZE = 5021;

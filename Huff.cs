@@ -1,4 +1,4 @@
-// Bradford Arrington III Jan 2025
+// Bradford Arrington 2025
 using Microsoft.VisualBasic;
 using System;
 using System.Collections.Generic;
@@ -6,175 +6,6 @@ using System.IO;
 
 partial class Compressor
 {
-    public const int PACIFIER_COUNT = 2047;
-    public class BitFile
-    {
-        public FileStream fileStream;
-        public int rack;
-        public byte mask;
-        public int pacifierCounter;
-        public bool isInput;
-
-        public BitFile(string name, bool input)
-        {
-            isInput = input;
-            fileStream = new FileStream(name, input ? FileMode.Open : FileMode.Create, input ? FileAccess.Read : FileAccess.Write);
-            rack = 0;
-            mask = 0x80;
-            pacifierCounter = 0;
-        }
-
-        public static BitFile OpenOutputBitFile(string name)
-        {
-            return new BitFile(name, false);
-        }
-
-        public static BitFile OpenInputBitFile(string name)
-        {
-            return new BitFile(name, true);
-        }
-
-        public void CloseBitFile()
-        {
-            if (!isInput && mask != 0x80)
-            {
-                try
-                {
-                    fileStream.WriteByte((byte)rack);
-                }
-                catch
-                {
-                    throw new Exception("Fatal error in CloseBitFile!");
-                    //Console.WriteLine("Error CloseBitFile");
-                }
-            }
-            fileStream.Close();
-        }
-
-        public void OutputBit(int bit)
-        {
-            if (bit != 0)
-            {
-                rack |= mask;
-            }
-            mask >>= 1;
-            if (mask == 0)
-            {
-                try
-                {
-                    fileStream.WriteByte((byte)rack);
-                    if ((pacifierCounter++ & PACIFIER_COUNT) == 0)
-                        Console.Write(".");
-                }
-                catch
-                {
-                    throw new Exception("Fatal error in OutputBit!");
-                }
-                rack = 0;
-                mask = 0x80;
-            }
-        }
-
-        public void OutputBits(uint code, int count)
-        {
-            uint maskCode = 1u << (count - 1);
-            while (maskCode != 0)
-            {
-                if ((maskCode & code) != 0)
-                {
-                    rack |= mask;
-                }
-                mask >>= 1;
-                if (mask == 0)
-                {
-                    try
-                    {
-                        fileStream.WriteByte((byte)rack);
-                        if ((pacifierCounter++ & PACIFIER_COUNT) == 0)
-                            Console.Write(".");
-                    }
-                    catch
-                    {
-                        throw new Exception("Fatal error in OutputBit!");
-                    }
-                    rack = 0;
-                    mask = 0x80;
-                }
-                maskCode >>= 1;
-            }
-        }
-
-        public int InputBit()
-        {
-            if (mask == 0x80)
-            {
-                int read = fileStream.ReadByte();
-                if (read == -1)
-                    throw new Exception("Fatal error in InputBit!");
-                rack = read;
-                if ((pacifierCounter++ & PACIFIER_COUNT) == 0)
-                    Console.Write(".");
-            }
-            int value = rack & mask;
-            mask >>= 1;
-            if (mask == 0)
-                mask = 0x80;
-            return value != 0 ? 1 : 0;
-        }
-        private int _buffer;
-        private int _bitCount;
-        public int ReadBits(int bits)
-        {
-            int value = 0;
-            while (bits > 0)
-            {
-                if (_bitCount == 0)
-                {
-                    int nextByte = fileStream.ReadByte();
-                    if (nextByte == -1)
-                    {
-                        throw new EndOfStreamException();
-                    }
-                    _buffer = nextByte;
-                    _bitCount = 8;
-                }
-
-                int shift = Math.Min(bits, _bitCount);
-                value = (value << shift) | ((_buffer >> (_bitCount - shift)) & ((1 << shift) - 1));
-                _bitCount -= shift;
-
-                bits -= shift;
-            }
-            return value;
-        }
-        public uint InputBits(int bitCount)
-        {
-            uint maskCode = 1u << (bitCount - 1);
-            uint returnValue = 0;
-            while (maskCode != 0)
-            {
-                if (mask == 0x80)
-                {
-                    int read = fileStream.ReadByte();
-                    if (read == -1)
-                        throw new Exception("Fatal error in InputBit!");
-                    rack = read;
-                    if ((pacifierCounter++ & PACIFIER_COUNT) == 0)
-                        Console.Write(".");
-                }
-                if ((rack & mask) != 0)
-                {
-                    returnValue |= maskCode;
-                }
-                maskCode >>= 1;
-                mask >>= 1;
-                if (mask == 0)
-                    mask = 0x80;
-            }
-            return returnValue;
-        }
-        
-    }
     const int END_OF_STREAM = 256;
 
     public struct Node
@@ -191,7 +22,9 @@ partial class Compressor
     }
 
     public string CompressionName = "static order 0 model with Huffman coding";
-    static string Usage = "infile outfile [-d]\n\nSpecifying -d will dump the modeling data\n";
+    //static string Usage = "infile outfile [-d]\n\nSpecifying -d will dump the modeling data\n";
+    public static string Usage = "infile outfile [-d]\n\nSpecifying -d will dump the modeling data\n";
+    
     public int Putc(int ch, FileStream fileStream)
     {
         try
@@ -498,85 +331,6 @@ partial class Compressor
             if ((Putc(node, output)) != node)
                 fatal_error("Error trying to write expanded byte to output");
         }
-    }
-}
-
-class Program
-{
-    private const string Usage = "in-file out-file";
-//var remainingArgs = args.Length > 2 ? args[2..] : Array.Empty<string>();
-    public static void Main(string[] args)
-    {
-        string[] arguments = Environment.GetCommandLineArgs();
-        if (args.Length < 2)
-        {
-            UsageExit(arguments[0]);
-        }
-
-        string[] remainingArgs = new string[args.Length - 2];
-        Array.Copy(args, 2, remainingArgs, 0, remainingArgs.Length);
-        var compressor = new Compressor();
-
-        /*Compressor.BitFile output = Compressor.BitFile.OpenOutputBitFile(args[1]);
-        FileStream input = new FileStream(args[0], FileMode.Open, FileAccess.Read);
-        Console.WriteLine($"\nCompressing {args[0]} to {args[1]}");
-        Console.WriteLine($"Using {compressor.CompressionName}\n");
-        compressor.CompressFile(input, output, remainingArgs.Length, remainingArgs);
-        output.CloseBitFile();
-        input.Close();
-        PrintRatios(args[0], args[1]);
-        */
-        Compressor.BitFile input = Compressor.BitFile.OpenInputBitFile(arguments[1]);
-        FileStream output = new FileStream(arguments[2], FileMode.Create, FileAccess.Write);
-        Console.WriteLine($"\nDecompressing {arguments[1]} to {arguments[2]}");
-        Console.WriteLine($"Using {compressor.CompressionName}\n");
-        
-        compressor.ExpandFile(input, output, remainingArgs.Length, remainingArgs); 
-    }
-
-    public static void UsageExit(string progName)
-    {
-        string shortName = progName;
-        int lastSlash = progName.LastIndexOf('\\');
-        if (lastSlash == -1)
-            lastSlash = progName.LastIndexOf('/');
-        if (lastSlash == -1)
-            lastSlash = progName.LastIndexOf(':');
-        if (lastSlash != -1)
-            shortName = progName.Substring(lastSlash + 1);
-        int extension = shortName.LastIndexOf('.');
-        if (extension != -1)
-            shortName = shortName.Substring(0, extension);
-        Console.WriteLine($"\nUsage:  {shortName} {Usage}");
-        Environment.Exit(0);
-    }
-    public static long FileSize(string fileName)
-    {
-        try
-        {
-            var fileInfo = new FileInfo(fileName);
-            return fileInfo.Length;
-        }
-        catch
-        {
-            return 0L;
-        }
-    }
-
-    public static void PrintRatios(string inputFilePath, string outputFilePath)
-    {
-        long inputSize = FileSize(inputFilePath);
-        if (inputSize == 0)
-        {
-            inputSize = 1;
-        }
-
-        long outputSize = FileSize(outputFilePath);
-        int ratio = 100 - (int)(outputSize * 100L / inputSize);
-
-        Console.WriteLine($"\nInput bytes:        {inputSize}");
-        Console.WriteLine($"Output bytes:       {outputSize}");
-        Console.WriteLine($"Compression ratio:  {ratio}%");
     }
 }
 

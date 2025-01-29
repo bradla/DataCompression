@@ -1,4 +1,4 @@
-// Brad Arrinton 2025
+// Bradford Arrington 2025
 using System;
 using System.IO;
 using System.Collections.Generic;
@@ -6,6 +6,7 @@ using System.Collections.Generic;
 partial class Compressor
 {
     public string CompressionName = "LZW 15 Bit Variable Rate Encoder";
+    public static string Usage = "in-file out-file\n\n";
     private const int Bits = 15;
     private const int MaxCode = (1 << Bits) - 1;
     private const int TableSize = 35023;

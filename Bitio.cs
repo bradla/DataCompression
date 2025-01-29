@@ -1,3 +1,4 @@
+// Bradford Arrington 2025
 using System;
 using System.IO;
 
@@ -6,11 +7,11 @@ public partial class Compressor
     public const int PACIFIER_COUNT = 2047;
     public class BitFile
     {
-        private FileStream fileStream;
-        private int rack;
-        private byte mask;
-        private int pacifierCounter;
-        private bool isInput;
+        public FileStream fileStream;
+        public int rack;
+        public byte mask;
+        public int pacifierCounter;
+        public bool isInput;
 
         public BitFile(string name, bool input)
         {
@@ -118,7 +119,32 @@ public partial class Compressor
                 mask = 0x80;
             return value != 0 ? 1 : 0;
         }
+        private int _buffer;
+        private int _bitCount;
+        public int ReadBits(int bits)
+        {
+            int value = 0;
+            while (bits > 0)
+            {
+                if (_bitCount == 0)
+                {
+                    int nextByte = fileStream.ReadByte();
+                    if (nextByte == -1)
+                    {
+                        throw new EndOfStreamException();
+                    }
+                    _buffer = nextByte;
+                    _bitCount = 8;
+                }
 
+                int shift = Math.Min(bits, _bitCount);
+                value = (value << shift) | ((_buffer >> (_bitCount - shift)) & ((1 << shift) - 1));
+                _bitCount -= shift;
+
+                bits -= shift;
+            }
+            return value;
+        }
         public uint InputBits(int bitCount)
         {
             uint maskCode = 1u << (bitCount - 1);
@@ -145,5 +171,6 @@ public partial class Compressor
             }
             return returnValue;
         }
+        
     }
 }
