@@ -44,6 +44,8 @@ int main( argc, argv )
 int argc;
 char *argv[];
 {
+    PROFILE_FUNCTION();
+
     FILE *output;
     BIT_FILE *input;
 
@@ -64,6 +66,9 @@ char *argv[];
     CloseInputBitFile( input );
     fclose( output );
     putc( '\n', stdout );
+
+    print_profiles();
+
     return( 0 );
 }
 

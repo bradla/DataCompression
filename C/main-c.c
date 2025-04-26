@@ -50,6 +50,8 @@ int main( argc, argv )
 int argc;
 char *argv[];
 {
+    PROFILE_FUNCTION();
+
     BIT_FILE *output;
     FILE *input;
 
@@ -68,6 +70,9 @@ char *argv[];
     CloseOutputBitFile( output );
     fclose( input );
     print_ratios( argv[ 1 ], argv[ 2 ] );
+
+    print_profiles();
+
     return( 0 );
 }
 

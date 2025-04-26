@@ -37,8 +37,13 @@ lzss: lzss.c
 	gcc -Wall main-e.c bitio.c errhand.c lzss.c -o lzss-e
 
 lzw12: lzw12.c
-	gcc -Wall main-c.c bitio.c errhand.c lzw12.c -o lzw12-c
-	gcc -Wall main-e.c bitio.c errhand.c lzw12.c -o lzw12-e
+  ifdef OS
+	gcc -Wall main-c.c bitio.c errhand.c perf.c lzw12.c -o lzw12-c -lpsapi
+	gcc -Wall main-e.c bitio.c errhand.c perf.c lzw12.c -o lzw12-e -lpsapi
+  else
+	gcc -Wall main-c.c bitio.c errhand.c perf.c lzw12.c -o lzw12-c -lrt
+	gcc -Wall main-e.c bitio.c errhand.c perf.c lzw12.c -o lzw12-e -lrt
+  endif
 
 lzw15v: lzw15v.c
 	gcc -Wall main-c.c bitio.c errhand.c lzw15v.c -o lzw15v-c

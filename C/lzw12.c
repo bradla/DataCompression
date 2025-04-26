@@ -69,6 +69,8 @@ BIT_FILE *output;
 int argc;
 char *argv[];
 {
+    PROFILE_FUNCTION();
+
     int next_code;
     int character;
     int string_code;
@@ -114,6 +116,8 @@ FILE *output;
 int argc;
 char *argv[];
 {
+    PROFILE_FUNCTION();
+
     unsigned int next_code;
     unsigned int new_code;
     unsigned int old_code;
@@ -165,6 +169,8 @@ unsigned int find_child_node( parent_code, child_character )
 int parent_code;
 int child_character;
 {
+    PROFILE_FUNCTION();
+
     int index;
     int offset;
 
@@ -195,6 +201,8 @@ unsigned int decode_string( count, code )
 unsigned int count;
 unsigned int code;
 {
+    PROFILE_FUNCTION();
+
     while ( code > 255 ) {
         decode_stack[ count++ ] = dict[ code ].character;
         code = dict[ code ].parent_code;
