@@ -90,9 +90,25 @@ public class CarProcessor
         Console.Write("     Filename            Size       Size     Ratio   CRC-32   Method\n");
         Console.Write("------------------     --------  ----------  -----  --------  ------\n");
     }
-
-
     private void CopyFileFromInputCar()
+    {
+        //Console.WriteLine("CopyFileFromInputCar ");
+        WriteFileHeader();
+        byte[] buffer = new byte[256];
+        ulong remaining = Header.CompressedSize;
+
+        while (remaining > 0)
+        {
+            int count = (int)Math.Min(remaining, 256);
+            if (InputCarFile.Read(buffer, 0, count) != count)
+            {
+                FatalError("Error reading input file {0}", Header.FileName);
+            }
+            OutputCarFile.Write(buffer, 0, count);
+            remaining -= (ulong)count;
+        }
+    }
+    private void CopyFileFromInputCar2()
     {
         byte[] buffer = new byte[256];
         ulong count;
@@ -125,6 +141,7 @@ public class CarProcessor
     }
     public int ProcessAllFilesInInputCar(char command, int count)
     {
+        //Console.WriteLine("ProcessAllFilesInInputCar");
         Stream outputDestination = null;
         try
         {
@@ -158,7 +175,10 @@ public class CarProcessor
                         if (matched)
                             SkipOverFileFromInputCar();
                         else
+                        {
+                            Console.WriteLine("Here ");
                             CopyFileFromInputCar();
+                        }
                         break;
                     case 'L':
                         if (matched)
@@ -216,10 +236,16 @@ public class CarProcessor
 
     private void BuildFileList(int argc, string[] args, char command)
     {
-        if (args.Length == 2)
+        if (args == null || args.Length == 0)
+        {
+            // Default to wildcard if no files specified
+            FileList.Add("*");
+            return;
+        }
+        /*if (args.Length == 2)
         {
             FileList.Add("*");
-        }
+        }*/
         else
         {
             foreach (string file in args)
@@ -250,39 +276,7 @@ public class CarProcessor
             }
         }
     }
-    public void BuildFileList2(int argc, string[] args, int command)
-    {
-        if (args.Length > 2)
-        {
-            bool exists = false;
-            exists = Array.Exists(args, element => element == "*");
-            if (exists)
-            {
-                DirectoryInfo place = new DirectoryInfo(Directory.GetCurrentDirectory());
-                FileInfo[] Files = place.GetFiles();
-                int a = 0;
-                foreach (FileInfo i in Files)
-                {
-                    Console.WriteLine("File Name - {0}", i.Name);
-                    FileList[a] =  i.Name;
-                    a++;
-                }
-            }
-            else
-            {
-                int a = 0;
-                for (int i = 2; i < args.Length; i++)
-                {
-                    FileList[a] = args[i];
-                    a++;
-                    //Array.Resize(ref FileList, FileList.Length + 1);
-                    //FileList[FileList.Length - 1] = args[i];
-                    //FileList = FileList.Concat(new[] { args[i] }).ToArray();
-                    //FileList.Add(args[i]);
-                }
-            }
-        }
-    }
+
     public int AddFileListToArchive()
     {
         int count = 0;
@@ -433,81 +427,57 @@ public class CarProcessor
             OutputCarFile.Flush();
     }
 
-    private bool WildCardMatch(string str, string pattern)
+    /// <summary>
+    /// Compares a string to a wildcard pattern, supporting '*' and '?' characters.
+    /// </summary>
+    /// <param name="input">The input string to test</param>
+    /// <param name="pattern">The wildcard pattern (may contain '*' and '?')</param>
+    /// <returns>True if the input matches the pattern, false otherwise</returns>
+    public static bool WildCardMatch(string input, string pattern)
     {
-        int strIndex = 0;
+        int inputIndex = 0;
         int patternIndex = 0;
-        int matchPos = 0;
-        int starPos = -1;
+        int inputBacktrackIndex = -1;
+        int patternBacktrackIndex = -1;
 
-        while (strIndex < str.Length)
+        while (inputIndex < input.Length)
         {
-            if (patternIndex < pattern.Length && (pattern[patternIndex] == '?' || pattern[patternIndex] == str[strIndex]))
+            if (patternIndex < pattern.Length && pattern[patternIndex] == '*')
             {
-                strIndex++;
+                // Remember backtrack positions when encountering '*'
+                inputBacktrackIndex = inputIndex;
+                patternBacktrackIndex = ++patternIndex;
+            }
+            else if (patternIndex < pattern.Length &&
+                    (pattern[patternIndex] == '?' || pattern[patternIndex] == input[inputIndex]))
+            {
+                // Characters match or '?' found - advance both pointers
+                inputIndex++;
                 patternIndex++;
             }
-            else if (patternIndex < pattern.Length && pattern[patternIndex] == '*')
+            else if (patternBacktrackIndex != -1)
             {
-                starPos = patternIndex;
-                matchPos = strIndex;
-                patternIndex++;
-            }
-            else if (starPos != -1)
-            {
-                patternIndex = starPos + 1;
-                matchPos++;
-                strIndex = matchPos;
+                // No match, backtrack to last '*' position
+                inputIndex = ++inputBacktrackIndex;
+                patternIndex = patternBacktrackIndex;
             }
             else
             {
+                // No match and no backtrack possible
                 return false;
             }
         }
 
+        // Skip any remaining '*' in pattern
         while (patternIndex < pattern.Length && pattern[patternIndex] == '*')
         {
             patternIndex++;
         }
 
+        // If we reached end of pattern, it's a match
         return patternIndex == pattern.Length;
     }
-    /*
-    private static bool Match(string str, string pattern, int si, int pi)
-    {
-        while (true)
-        {
-            if (pi < pattern.Length && pattern[pi] == '*')
-            {
-                pi++;
-                for (int skip = 0; si + skip <= str.Length; skip++)
-                {
-                    if (Match(str, pattern, si + skip, pi))
-                        return true;
-                }
-                return false;
-            }
-            else if (pi < pattern.Length && pattern[pi] == '?')
-            {
-                if (si >= str.Length)
-                    return false;
-                si++;
-                pi++;
-            }
-            else
-            {
-                if (si >= str.Length || pi >= pattern.Length)
-                    return si == str.Length && pi == pattern.Length;
-
-                if (str[si] != pattern[pi])
-                    return false;
-
-                si++;
-                pi++;
-            }
-        }
-    } */
-
+    
     private bool SearchFileList(string fileName)
     {
         foreach (string file in FileList)
@@ -528,6 +498,7 @@ public class CarProcessor
 
     public static int ReadFileHeader()
     {
+        //Console.WriteLine("ReadFileHeader");
         byte[] headerData = new byte[17];
         ulong headerCrc;
         uint i = 0;
@@ -547,14 +518,7 @@ public class CarProcessor
             if (++i == FilenameMax)
                 FatalError($"File name exceeded maximum in header");
         }
-        ///string result = fileName.ToString().Split('\0')[0]; // Gets part before `\0` m_ChunkChars
-        //Header.FileName = result;
 
-        // if (i == 0)
-        //     return 0;
-
-        //byte[] byteArray = Encoding.ASCII.GetBytes(fileName.ToString());
-        // headerCrc = CalculateBlockCRC32((i + 1), CrcMask, byteArray);
         if (fileName.Length == 0)
             return 0;
 
@@ -565,14 +529,14 @@ public class CarProcessor
             return 0;
 
         Header.CompressionMethod = (char)headerData[0];
-        Header.OriginalSize = BitConverter.ToUInt32(headerData, 1);
-        Header.CompressedSize = BitConverter.ToUInt32(headerData, 5);
-        Header.OriginalCrc = BitConverter.ToUInt32(headerData, 9);
-        Header.HeaderCrc = BitConverter.ToUInt32(headerData, 13);
-        //Header.OriginalSize = UnpackUnsignedData(4, headerData, 1);
-        //Header.CompressedSize = UnpackUnsignedData(4, headerData, 5);
-        //Header.OriginalCrc = UnpackUnsignedData(4, headerData, 9);
-        //Header.HeaderCrc = UnpackUnsignedData(4, headerData, 13);
+        //Header.OriginalSize = BitConverter.ToUInt32(headerData, 1);
+        //Header.CompressedSize = BitConverter.ToUInt32(headerData, 5);
+        //Header.OriginalCrc = BitConverter.ToUInt32(headerData, 9);
+        //Header.HeaderCrc = BitConverter.ToUInt32(headerData, 13);
+        Header.OriginalSize = UnpackUnsignedData(4, headerData, 1);
+        Header.CompressedSize = UnpackUnsignedData(4, headerData, 5);
+        Header.OriginalCrc = UnpackUnsignedData(4, headerData, 9);
+        Header.HeaderCrc = UnpackUnsignedData(4, headerData, 13);
 
         headerCrc = CalculateBlockCRC32(13, headerCrc, headerData);
 
@@ -635,8 +599,8 @@ public class CarProcessor
     public void WriteEndOfCarHeader()
     {
         OutputCarFile.WriteByte(0);
-        //InputCarFile.Close();
-        //OutputCarFile.Close();
+        InputCarFile.Close();
+        OutputCarFile.Close();
     }
     /*
     public static void Insert2(FileStream inputTextFile, string operation)
@@ -681,7 +645,7 @@ public class CarProcessor
         WriteFileHeader();
 
         long savedPositionOfFile = OutputCarFile.Position;
-        Header.OriginalSize = (uint)inputTextFile.Length;
+        Header.OriginalSize = (ulong)inputTextFile.Length;
         inputTextFile.Seek(0, SeekOrigin.Begin);
 
         if (!LZSSCompress(inputTextFile))
@@ -806,60 +770,6 @@ public class CarProcessor
 
         return crc ^ CrcMask;
     }
-    /*
-    public static bool Store(FileStream inputTextFile)
-    {
-        byte[] buffer = new byte[256];
-        uint n;
-        int pacifier = 0;
-
-        Header.OriginalCrc = CrcMask;
-
-        while ((n = (uint)inputTextFile.Read(buffer, 0, 256)) != 0)
-        {
-            OutputCarFile?.Write(buffer, 0, (int)n);
-            Header.OriginalCrc = CalculateBlockCRC32(n, Header.OriginalCrc, buffer);
-            if (((++pacifier) & 15) == 0)
-                Console.Error.Write('.');
-        }
-
-        Header.CompressedSize = Header.OriginalSize;
-        Header.OriginalCrc ^= CrcMask;
-        return true;
-    }
-
-    // Unstore Method
-    public static ulong Unstore(FileStream destination)
-    {
-        ulong crc = CrcMask;
-        uint count;
-        byte[] buffer = new byte[256];
-        int pacifier = 0;
-
-        while (Header.OriginalSize != 0)
-        {
-            //count = (Header.OriginalSize > 256 ? 256 : Header.OriginalSize);
-            if (Header.OriginalSize > 256)
-                count = 256;
-            else
-                count = (uint)Header.OriginalSize;
-
-            int bytesRead = InputCarFile?.Read(buffer, 0, (int)count) ?? 0;
-            if (bytesRead != count)
-                FatalError("Can't read from input CAR file");
-
-            destination.Write(buffer, 0, (int)count);
-            crc = CalculateBlockCRC32(count, (uint)crc, buffer);
-
-            if (destination != Stream.Null && ((pacifier++) & 15) == 0)
-                Console.Error.Write('.');
-
-            Header.OriginalSize -= (ulong)count;
-        }
-
-        return crc ^ CrcMask;
-    } */
-
     public static void ListCarFileEntry()
     {
         string[] methods = { "Stored", "LZSS" };
@@ -873,12 +783,12 @@ public class CarProcessor
             $"{methods[Header.CompressionMethod - 1],5}");
     }
 
-    public static void SkipOverFileFromInputCar()
+    private void SkipOverFileFromInputCar()
     {
-        long compsize = (long)Header.CompressedSize;
         InputCarFile.Seek((long)Header.CompressedSize, SeekOrigin.Current);
     }
-    public  void BuildCRCTable()
+
+    public void BuildCRCTable()
     {
         int i;
         int j;
@@ -1149,7 +1059,10 @@ public class CarProcessor
         DataBuffer[BufferOffset++] = (byte)data;
         DataBuffer[0] |= (byte)FlagBitMask;
         FlagBitMask <<= 1;
-        return FlagBitMask == 0x100 ? FlushOutputBuffer() : true;
+        if (FlagBitMask == 0x100)   // ? FlushOutputBuffer() : true;
+            return (FlushOutputBuffer());
+        else
+            return true;
     }
 
     private bool OutputPair(int position, int length)
@@ -1387,7 +1300,7 @@ public class CarProcessor
 
         processor.OpenArchiveFiles(args[1], command);
         //BuildFileList(args.Skip(2).ToArray(), command);
-        processor.BuildFileList(args.Length, args, command);
+        processor.BuildFileList(args.Length, args.Skip(2).ToArray(), command);
 
         int count = 0;
         if (command == 'A')
@@ -1412,7 +1325,12 @@ public class CarProcessor
                 if (File.Exists(CarProcessor.CarFileName))
                 {
                     File.Delete(CarProcessor.CarFileName);
+                    //File.Copy(CarProcessor.TempFileName, CarProcessor.CarFileName);
+                    //File.Delete(CarProcessor.CarFileName);
+                    //File.Replace(CarProcessor.TempFileName, CarProcessor.CarFileName, CarProcessor.CarFileName+".bak");
+                
                 }
+                Console.WriteLine("Copy temp to original {0}", CarProcessor.TempFileName);
                 File.Move(CarProcessor.TempFileName, CarProcessor.CarFileName);
             }
             catch (Exception ex)
