@@ -1,1351 +1,1086 @@
-// Bradford Arrington III 2025
-
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Globalization;
 using System.IO;
-using System.Reflection.PortableExecutable;
+using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
-public class CarProcessor
+namespace CarManager
 {
-    public const int UNUSED = 0;
-    public const int INDEX_BIT_COUNT = 12;
-    public const int LENGTH_BIT_COUNT = 4;
-    public const int WINDOW_SIZE = (1 << INDEX_BIT_COUNT);
-    public const int TREE_ROOT = (1 << INDEX_BIT_COUNT);
-    public const int RAW_LOOK_AHEAD_SIZE = (1 << LENGTH_BIT_COUNT);
-    public const int END_OF_STREAM = 0;
-    public const int BREAK_EVEN = ((1 + INDEX_BIT_COUNT + LENGTH_BIT_COUNT) / 9);
-    public const int LOOK_AHEAD_SIZE = (RAW_LOOK_AHEAD_SIZE + BREAK_EVEN);
-    // Constants
-    public const int BaseHeaderSize = 19;
-                               
-    public const ulong CrcMask = 0xFFFFFFFFL;
-    public const uint Crc32Polynomial = 0xEDB88320;
-    public const int FilenameMax = 128;
-    public const int MaxFileList = 100;
-    public const int Ccitt32TableSize = 256;
+    public class CarMan
+    {
+        private const int BASE_HEADER_SIZE = 19;
+        private const ulong CRC_MASK = 0xFFFFFFFF;
+        private const uint CRC32_POLYNOMIAL = 0xEDB88320;
+        private const int FILENAME_MAX = 260; // Increased from 128 for modern systems
 
-    // Header Structure
-    public struct HeaderStruct
-    {
-        public string FileName;// { get; set; } = string.Empty;
-        public char CompressionMethod; //{ get; set; }
-        public ulong OriginalSize; //{ get; set; }
-        public ulong CompressedSize; //{ get; set; }
-        public ulong OriginalCrc; //{ get; set; }
-        public ulong HeaderCrc; // { get; set; }
-    }
-    public struct TreeNode
-    {
-        public int Parent;
-        public int SmallerChild;
-        public int LargerChild;
-    }
-    public static byte[] Window = new byte[WINDOW_SIZE];
-    public static TreeNode[] Tree = new TreeNode[WINDOW_SIZE + 1];
-
-    // Global Variables
-    public static string TempFileName = new string('\0', FilenameMax);
-    public static FileStream InputCarFile;
-    public static string CarFileName = string.Empty;
-    public static FileStream OutputCarFile;
-    //private FileStream OutputCarFile;
-    private List<string> FileList = new List<string>();
-    public static ulong[] Ccitt32Table = new ulong[Ccitt32TableSize];
-    public static HeaderStruct Header = new HeaderStruct();
-
-    public static int ModWindow(int a)
-    {
-        return a & (WINDOW_SIZE - 1);
-    }
-    static string StrRChr(string stringToSearch, char charToFind)
-    {
-        int index = stringToSearch.LastIndexOf(charToFind);
-        if (index > -1)
-            return stringToSearch.Substring(index);
-        return stringToSearch;
-    }
-    public  void UsageExit()
-    {
-        Console.WriteLine("CARMAN -- Compressed Archive MANager");
-        Console.WriteLine("Usage: carman command car-file [file ...]");
-        Console.WriteLine("Commands:");
-        Console.WriteLine("  a: Add files to a CAR archive (replace if present)");
-        Console.WriteLine("  x: Extract files from a CAR archive");
-        Console.WriteLine("  r: Replace files in a CAR archive");
-        Console.WriteLine("  d: Delete files from a CAR archive");
-        Console.WriteLine("  p: Print files on standard output");
-        Console.WriteLine("  l: List contents of a CAR archive");
-        Console.WriteLine("  t: Test files in a CAR archive");
-        Console.WriteLine("");
-        //Console.ReadLine();
-    }
-    public  void PrintListTitles()
-    {
-        Console.Write("\n");
-        Console.Write("                       Original  Compressed\n");
-        Console.Write("     Filename            Size       Size     Ratio   CRC-32   Method\n");
-        Console.Write("------------------     --------  ----------  -----  --------  ------\n");
-    }
-    private void CopyFileFromInputCar()
-    {
-        //Console.WriteLine("CopyFileFromInputCar ");
-        WriteFileHeader();
-        byte[] buffer = new byte[256];
-        ulong remaining = Header.CompressedSize;
-
-        while (remaining > 0)
+        private struct Header
         {
-            int count = (int)Math.Min(remaining, 256);
-            if (InputCarFile.Read(buffer, 0, count) != count)
-            {
-                FatalError("Error reading input file {0}", Header.FileName);
-            }
-            OutputCarFile.Write(buffer, 0, count);
-            remaining -= (ulong)count;
+            public string file_name;
+            public char compression_method;
+            public ulong original_size;
+            public ulong compressed_size;
+            public ulong original_crc;
+            public ulong header_crc;
         }
-    }
-    private void CopyFileFromInputCar2()
-    {
-        byte[] buffer = new byte[256];
-        ulong count;
 
-        WriteFileHeader();
-        while (Header.CompressedSize != 0)
+        private string TempFileName;
+        private FileStream InputCarFile;
+        private string CarFileName;
+        private FileStream OutputCarFile;
+        private Header CurrentHeader;
+        private List<string> FileList = new List<string>();
+        private uint[] Ccitt32Table = new uint[256];
+
+        // LZSS Constants
+        private const int INDEX_BIT_COUNT = 12;
+        private const int LENGTH_BIT_COUNT = 4;
+        private const int WINDOW_SIZE = 1 << INDEX_BIT_COUNT;
+        private const int RAW_LOOK_AHEAD_SIZE = 1 << LENGTH_BIT_COUNT;
+        private const int BREAK_EVEN = (1 + INDEX_BIT_COUNT + LENGTH_BIT_COUNT) / 9;
+        private const int LOOK_AHEAD_SIZE = RAW_LOOK_AHEAD_SIZE + BREAK_EVEN;
+        private const int TREE_ROOT = WINDOW_SIZE;
+        private const int END_OF_STREAM = 0;
+        private const int UNUSED = 0;
+
+        private byte[] window = new byte[WINDOW_SIZE];
+        // Blocked I/O for LZSS
+        private byte[] dataBuffer = new byte[17];
+        private int flagBitMask;
+        private int bufferOffset;
+
+        private struct TreeNode
         {
-            if (Header.CompressedSize < 256)
+            public int parent;
+            public int smaller_child;
+            public int larger_child;
+        }
+
+        private TreeNode[] tree = new TreeNode[WINDOW_SIZE + 1];
+        public static void Main(string[] args)
+        {
+            if (args.Length < 2)
             {
-                count = (Header.CompressedSize);
+                UsageExit();
+                return;
+            }
+
+            CarMan carMan = new CarMan();
+            carMan.Run(args);
+        }
+        private int AddFileListToArchive()
+        {
+            int count = 0;
+            foreach (string file in FileList)
+            {
+                try
+                {
+                    Console.WriteLine("adding: " + file);
+                    using (FileStream inputTextFile = new FileStream(file, FileMode.Open, FileAccess.Read))
+                    {
+                        string fileNameOnly = Path.GetFileName(file);
+
+                        // Check for duplicates
+                        bool skip = false;
+                        for (int i = 0; i < count; i++)
+                        {
+                            if (string.Equals(fileNameOnly, FileList[i], StringComparison.OrdinalIgnoreCase))
+                            {
+                                Console.Error.Write($"Duplicate file name: {file}   Skipping this file...");
+                                skip = true;
+                                break;
+                            }
+                        }
+
+                        if (!skip)
+                        {
+                            CurrentHeader = new Header();
+                            CurrentHeader.file_name = fileNameOnly;
+                            Insert(inputTextFile, "Adding");
+                            count++;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    FatalError("Could not open {0} to add to CAR file {ex.Message}", file);
+                }
+            }
+            return count;
+        }
+
+        private int AddString(int newNode, out int matchPosition)
+        {
+            int i;
+            int testNode = tree[TREE_ROOT].larger_child;
+            int matchLength = 0;
+            matchPosition = 0;
+            int delta = 0;
+
+            if (newNode == END_OF_STREAM)
+                return (0);
+            while (true)
+            {
+                for (i = 0; i < LOOK_AHEAD_SIZE; i++)
+                {
+                    delta = window[ModWindow(newNode + i)] - window[ModWindow(testNode + i)];
+                    if (delta != 0)
+                        break;
+                }
+
+                if (i >= matchLength)
+                {
+                    matchLength = i;
+                    matchPosition = testNode;
+                    if (matchLength >= LOOK_AHEAD_SIZE)
+                    {
+                        ReplaceNode(testNode, newNode);
+                        return matchLength;
+                    }
+                }
+
+                ref int child = ref (delta >= 0) ? ref tree[testNode].larger_child : ref tree[testNode].smaller_child;
+
+                if (child == UNUSED)
+                {
+                    child = newNode;
+                    tree[newNode].parent = testNode;
+                    tree[newNode].larger_child = UNUSED;
+                    tree[newNode].smaller_child = UNUSED;
+                    return matchLength;
+                }
+                testNode = child;
+            }
+        }
+        private void BuildFileList(string[] files, char command)
+        {
+            if (files.Length == 0)
+            {
+                FileList.Add("*");
             }
             else
             {
-                count = 256;
-            }
-            if (InputCarFile.Read(buffer, 1, (int)count) != (int)count)
-            {
-                Console.WriteLine("Error reading input file {0}", Header.FileName);
-            }
-            Header.CompressedSize -= (uint)count;
-            try
-            {
-                OutputCarFile.Write(buffer, 1, (int)count);
-            }
-            catch
-            {
-                Console.WriteLine("Error writing to output CAR file");
-            }
-        }
-    }
-    public int ProcessAllFilesInInputCar(char command, int count)
-    {
-        //Console.WriteLine("ProcessAllFilesInInputCar");
-        Stream outputDestination = null;
-        try
-        {
-            if (command == 'P')
-            {
-                outputDestination = Console.OpenStandardOutput();
-            }
-            else if (command == 'T')
-            {
-                outputDestination = new FileStream(Path.GetTempFileName(), FileMode.Create);
-            }
-
-            while (InputCarFile != null && ReadFileHeader() != 0)
-            {
-                bool matched = SearchFileList(Header.FileName);
-
-                switch (command)
+                foreach (string file in files)
                 {
-                    case 'D':
-                        if (matched)
-                        {
-                            SkipOverFileFromInputCar();
-                            count++;
-                        }
-                        else
-                        {
-                            CopyFileFromInputCar();
-                        }
-                        break;
-                    case 'A':
-                        if (matched)
-                            SkipOverFileFromInputCar();
-                        else
-                        {
-                            Console.WriteLine("Here ");
-                            CopyFileFromInputCar();
-                        }
-                        break;
-                    case 'L':
-                        if (matched)
-                        {
-                            ListCarFileEntry();
-                            count++;
-                        }
-                        SkipOverFileFromInputCar();
-                        break;
-                    case 'P':
-                    case 'X':
-                    case 'T':
-                        if (matched)
-                        {
-                            Extract(outputDestination);
-                            count++;
-                        }
-                        else
-                        {
-                            SkipOverFileFromInputCar();
-                        }
-                        break;
-                    case 'R':
-                        if (matched)
-                        {
-                            try
-                            {
-                                using (FileStream inputTextFile = new FileStream(Header.FileName, FileMode.Open, FileAccess.Read))
-                                {
-                                    SkipOverFileFromInputCar();
-                                    Insert(inputTextFile, "Replacing");
-                                    count++;
-                                }
-                            }
-                            catch
-                            {
-                                Console.Error.Write($"Could not find {Header.FileName} for replacement, skipping");
-                                CopyFileFromInputCar();
-                            }
-                        }
-                        else
-                        {
-                            CopyFileFromInputCar();
-                        }
-                        break;
-                }
-            }
-        }
-        finally
-        {
-            outputDestination?.Dispose();
-        }
-        return count;
-    }
-
-    private void BuildFileList(int argc, string[] args, char command)
-    {
-        if (args == null || args.Length == 0)
-        {
-            // Default to wildcard if no files specified
-            FileList.Add("*");
-            return;
-        }
-        /*if (args.Length == 2)
-        {
-            FileList.Add("*");
-        }*/
-        else
-        {
-            foreach (string file in args)
-            {
-                if (command == 'A')
-                {
-                    // Handle wildcard expansion for Add command
-                    try
+                    if (command == 'A')
                     {
-                        string dir = Path.GetDirectoryName(file);
-                        if (string.IsNullOrEmpty(dir)) dir = ".";
-                        string pattern = Path.GetFileName(file);
-
-                        foreach (string foundFile in Directory.GetFiles(dir, pattern))
+                        // Handle wildcard expansion for Add command
+                        try
                         {
-                            FileList.Add(foundFile.ToLower());
+                            string dir = Path.GetDirectoryName(file);
+                            if (string.IsNullOrEmpty(dir)) dir = ".";
+                            string pattern = Path.GetFileName(file);
+
+                            foreach (string foundFile in Directory.GetFiles(dir, pattern))
+                            {
+                                FileList.Add(foundFile.ToLower());
+                            }
+                        }
+                        catch
+                        {
+                            FileList.Add(file.ToLower());
                         }
                     }
-                    catch
+                    else
                     {
                         FileList.Add(file.ToLower());
                     }
-                }
-                else
-                {
-                    FileList.Add(file.ToLower());
+
+                    if (FileList.Count > 99)
+                    {
+                        FatalError("Too many file names");
+                    }
                 }
             }
         }
-    }
-
-    public int AddFileListToArchive()
-    {
-        int count = 0;
-        foreach (string file in FileList)
+        private void BuildCRCTable()
         {
+            for (int i = 0; i <= 255; i++)
+            {
+                uint value = (uint)i;
+                for (int j = 8; j > 0; j--)
+                {
+                    if ((value & 1) != 0)
+                        value = (value >> 1) ^ CRC32_POLYNOMIAL;
+                    else
+                        value >>= 1;
+                }
+                Ccitt32Table[i] = value;
+            }
+        }
+        private void ContractNode(int oldNode, int newNode)
+        {
+            tree[newNode].parent = tree[oldNode].parent;
+            if (tree[tree[oldNode].parent].larger_child == oldNode)
+                tree[tree[oldNode].parent].larger_child = newNode;
+            else
+                tree[tree[oldNode].parent].smaller_child = newNode;
+
+            tree[oldNode].parent = UNUSED;
+        }
+
+        private ulong CalculateBlockCRC32(uint count, ulong crc, byte[] buffer)
+        {
+            ulong temp1;
+            ulong temp2;
+
+            for (int i = 0; i < count; i++)
+            {
+                temp1 = (crc >> 8) & 0x00FFFFFF;
+                temp2 = Ccitt32Table[(crc ^ buffer[i]) & 0xff];
+                crc = temp1 ^ temp2;
+            }
+            return crc;
+        }
+        private void CopyFileFromInputCar()
+        {
+            Console.WriteLine("CopyFilefrominputcar");
+            WriteFileHeader();
+            byte[] buffer = new byte[256];
+            //uint remaining = CurrentHeader.compressed_size;
+            uint count = 0;
+
+            WriteFileHeader();
+            while (CurrentHeader.compressed_size != 0)
+            {
+                if (CurrentHeader.compressed_size < 256)
+                    count = (uint)CurrentHeader.compressed_size;//Math.Min(CurrentHeader.compressed_size, 256);
+                else
+                    count = 256;
+                if (InputCarFile.Read(buffer, 0, (int)count) != count)
+                    FatalError("Error reading input file {0}", CurrentHeader.file_name);
+
+                OutputCarFile.Write(buffer, 0, (int)count);
+                CurrentHeader.compressed_size -= count;
+            }
+        }
+        private void DeleteString(int p)
+        {
+            if (tree[p].parent == UNUSED)
+                return;
+
+            if (tree[p].larger_child == UNUSED)
+                ContractNode(p, tree[p].smaller_child);
+            else if (tree[p].smaller_child == UNUSED)
+                ContractNode(p, tree[p].larger_child);
+            else
+            {
+                int replacement = FindNextNode(p);
+                DeleteString(replacement);
+                ReplaceNode(p, replacement);
+            }
+        }
+        private void Extract(Stream destination)
+        {
+            Console.Error.Write("{0,-20} ", CurrentHeader.file_name);
+            bool error = false;
+
+            Stream outputTextFile = destination;
+            bool shouldClose = false;
+            uint crc;
+
             try
             {
-                using (FileStream inputTextFile = new FileStream(file, FileMode.Open, FileAccess.Read))
+                if (destination == null)
                 {
-                    string fileNameOnly = Path.GetFileName(file);
-
-                    // Check for duplicates
-                    bool skip = false;
-                    for (int i = 0; i < count; i++)
+                    try
                     {
-                        if (string.Equals(fileNameOnly, FileList[i], StringComparison.OrdinalIgnoreCase))
-                        {
-                            Console.Error.Write($"Duplicate file name: {file}   Skipping this file...");
-                            skip = true;
-                            break;
-                        }
+                        outputTextFile = new FileStream(CurrentHeader.file_name, FileMode.Create, FileAccess.Write);
+                        shouldClose = true;
                     }
-
-                    if (!skip)
+                    catch (Exception ex)
                     {
-                        //Header = new Header();
-                        Header.FileName = fileNameOnly;
-                        Insert(inputTextFile, "Adding");
-                        count++;
+                        SkipOverFileFromInputCar();
+                        Console.Error.WriteLine($"Can't open {CurrentHeader.file_name}: {ex.Message}");
                     }
+                } else outputTextFile = destination;
+
+                switch (CurrentHeader.compression_method)
+                {
+                    case (char)1:
+                        crc = (uint)Unstore(outputTextFile);
+                        break;
+                    case (char)2:
+                        crc = (uint)LZSSExpand(outputTextFile);
+                        break;
+                    default:
+                        Console.Error.Write("Unknown method: {0}", CurrentHeader.compression_method);
+                        SkipOverFileFromInputCar();
+                        error = true;
+                        crc = (uint)CurrentHeader.original_crc;
+                        break;
                 }
+
+                if (crc != CurrentHeader.original_crc)
+                {
+                    Console.Error.Write("CRC error reading data");
+                    error = true;
+                }
+
+                if (!error)
+                    Console.Error.Write(" OK");
             }
             catch
             {
-                FatalError("Could not open {0} to add to CAR file", file);
+                Console.Error.Write("Can't open {0}", CurrentHeader.file_name);
+                Console.Error.Write("Not extracted");
+                SkipOverFileFromInputCar();
             }
-        }
-        return count;
-    }
-
-    public int AddFileListToArchive2()
-    {
-        int i;
-        int skip = 0;
-        FileStream input_text_file;
-        byte[] input_text_file1;
-
-        for (i = 0; FileList[i] != null; i++)
-        {
-            input_text_file1 = File.ReadAllBytes(FileList[i]);
-            if (input_text_file1 == null)
-                Console.WriteLine("Could not open %s to add to CAR file", FileList[i]);
-
-            if (skip == 0)  // XXX Fix me
+            finally
             {
-                Header.FileName = FileList[i];
-                input_text_file = new FileStream(Header.FileName, FileMode.Open, FileAccess.Read);
-                Insert(input_text_file, "Adding");
-            }
-        }
-        return (i);
-    }
-
-    public char ParseArguments(int argc, string[] argv)
-    {
-        //char command;
-        //string[] arguments = Environment.GetCommandLineArgs();
-
-        if (argv.Length < 2)
-        {
-            UsageExit();
-            Environment.Exit(0);
-        }
-
-        char lowerCase = char.Parse(argv[0]); // argv[0][0]);
-        char command = char.ToUpper(lowerCase, CultureInfo.InvariantCulture);
-        switch (command) // = char.Parse(arguments[1]))
-        {
-            case 'X':
-                Console.WriteLine("Extracting files");
-                break;
-            case 'R':
-                Console.WriteLine("Replacing files");
-                break;
-            case 'P':
-                Console.WriteLine("Print files to stdout");
-                break;
-            case 'T':
-                Console.WriteLine("Testing integrity of files");
-                break;
-            case 'L':
-                Console.WriteLine("Listing archive contents");
-                break;
-            case 'A':
-                if (argv.Length <= 3)
-                    UsageExit();
-                Console.WriteLine("Adding/replacing files to archive");
-                break;
-            case 'D':
-                if (argv.Length <= 3)
-                    UsageExit();
-                Console.WriteLine("Deleting files from archive");
-                break;
-            default:
-                UsageExit();
-                break;
-        };
-        return command;
-    }
-    public void OpenArchiveFiles(string name, char command)
-    {
-        string s;
-        //int i;
-        int FILENAME_MAX = 255;
-        char x = command;
-
-        CarFileName = name;
-        InputCarFile = new FileStream(CarFileName, FileMode.OpenOrCreate, FileAccess.ReadWrite);
-        if (InputCarFile != null)
-        {
-            s = StrRChr(CarFileName, '\\');
-            if (s == null)
-                s = CarFileName;
-
-            if (StrRChr(s, '.') == null)
-                if (CarFileName.Length < (FILENAME_MAX - 4))
+                if (shouldClose)
                 {
-                    CarFileName += ".car";
-                    FileStream fsout = new FileStream(CarFileName, FileMode.Create, FileAccess.Write);
-                    InputCarFile.CopyTo(fsout);
-                }
-        }
+                    outputTextFile?.Close();
 
-        if (!File.Exists(CarFileName) && (char)command != 'A')
-            FatalError("Can't open archive {0}", CarFileName);
-
-        if ((char)command == 'A' || (char)command == 'R' || (char)command == 'D')
-        {
-            TempFileName = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + Path.GetExtension(CarFileName));
-            OutputCarFile = new FileStream(TempFileName, FileMode.OpenOrCreate, FileAccess.ReadWrite);
-            if (OutputCarFile == null)
-                FatalError("Can't open temporary file {0}", TempFileName);
-        }
-        if (InputCarFile != null)
-            InputCarFile.Flush();
-
-        if (OutputCarFile != null)
-            OutputCarFile.Flush();
-    }
-
-    /// <summary>
-    /// Compares a string to a wildcard pattern, supporting '*' and '?' characters.
-    /// </summary>
-    /// <param name="input">The input string to test</param>
-    /// <param name="pattern">The wildcard pattern (may contain '*' and '?')</param>
-    /// <returns>True if the input matches the pattern, false otherwise</returns>
-    public static bool WildCardMatch(string input, string pattern)
-    {
-        int inputIndex = 0;
-        int patternIndex = 0;
-        int inputBacktrackIndex = -1;
-        int patternBacktrackIndex = -1;
-
-        while (inputIndex < input.Length)
-        {
-            if (patternIndex < pattern.Length && pattern[patternIndex] == '*')
-            {
-                // Remember backtrack positions when encountering '*'
-                inputBacktrackIndex = inputIndex;
-                patternBacktrackIndex = ++patternIndex;
-            }
-            else if (patternIndex < pattern.Length &&
-                    (pattern[patternIndex] == '?' || pattern[patternIndex] == input[inputIndex]))
-            {
-                // Characters match or '?' found - advance both pointers
-                inputIndex++;
-                patternIndex++;
-            }
-            else if (patternBacktrackIndex != -1)
-            {
-                // No match, backtrack to last '*' position
-                inputIndex = ++inputBacktrackIndex;
-                patternIndex = patternBacktrackIndex;
-            }
-            else
-            {
-                // No match and no backtrack possible
-                return false;
-            }
-        }
-
-        // Skip any remaining '*' in pattern
-        while (patternIndex < pattern.Length && pattern[patternIndex] == '*')
-        {
-            patternIndex++;
-        }
-
-        // If we reached end of pattern, it's a match
-        return patternIndex == pattern.Length;
-    }
-    
-    private bool SearchFileList(string fileName)
-    {
-        foreach (string file in FileList)
-        {
-            if (WildCardMatch(fileName, file))
-                return true;
-        }
-        return false;
-    }
-
-    public static int RatioInPercent(ulong compressed, ulong original)
-    {
-        if (original == 0)
-            return 0;
-        int result = (int)((100L * compressed) / original);
-        return 100 - result;
-    }
-
-    public static int ReadFileHeader()
-    {
-        //Console.WriteLine("ReadFileHeader");
-        byte[] headerData = new byte[17];
-        ulong headerCrc;
-        uint i = 0;
-
-        StringBuilder fileName = new StringBuilder();
-
-        while (true)
-        {
-            int c = InputCarFile.ReadByte();
-            if (c == -1) return 0;
-
-            if (c == 0)
-                break;
-
-            fileName.Append((char)c);
-
-            if (++i == FilenameMax)
-                FatalError($"File name exceeded maximum in header");
-        }
-
-        if (fileName.Length == 0)
-            return 0;
-
-        Header.FileName = fileName.ToString();
-        headerCrc = CalculateBlockCRC32((uint)(i + 1), CrcMask, Encoding.ASCII.GetBytes(Header.FileName + '\0'));   
-
-        if (InputCarFile.Read(headerData, 0, 17) != 17)
-            return 0;
-
-        Header.CompressionMethod = (char)headerData[0];
-        //Header.OriginalSize = BitConverter.ToUInt32(headerData, 1);
-        //Header.CompressedSize = BitConverter.ToUInt32(headerData, 5);
-        //Header.OriginalCrc = BitConverter.ToUInt32(headerData, 9);
-        //Header.HeaderCrc = BitConverter.ToUInt32(headerData, 13);
-        Header.OriginalSize = UnpackUnsignedData(4, headerData, 1);
-        Header.CompressedSize = UnpackUnsignedData(4, headerData, 5);
-        Header.OriginalCrc = UnpackUnsignedData(4, headerData, 9);
-        Header.HeaderCrc = UnpackUnsignedData(4, headerData, 13);
-
-        headerCrc = CalculateBlockCRC32(13, headerCrc, headerData);
-
-        headerCrc ^= CrcMask;
-
-        if (Header.HeaderCrc != headerCrc)
-            FatalError($"Header checksum error for file {Header.FileName}");
-
-        return 1;
-    }
-
-    public static ulong UnpackUnsignedData(int numberOfBytes, byte[] buffer, int offset)
-    {
-        ulong result = 0;
-        int shiftCount = 0;
-        int index = offset;
-
-        while (numberOfBytes-- > 0)
-        {
-            result |= ((ulong)buffer[index++]) << shiftCount;
-            shiftCount += 8;
-        }
-
-        return result;
-    }
-
-    private void WriteFileHeader()
-    {
-        byte[] headerData = new byte[17];
-        uint i = 0;
-
-        byte[] bytes = Encoding.ASCII.GetBytes(Header.FileName);
-        byte[] withNull = bytes.Concat(new byte[] { 0 }).ToArray();
-        OutputCarFile.Write(withNull, 0, withNull.Length);
-        i = (uint)withNull.Length;
-
-        Header.HeaderCrc = CalculateBlockCRC32(i, CrcMask, withNull);
-
-        // PackUnsignedData needs to be implemented
-        PackUnsignedData(1, (ulong)Header.CompressionMethod, headerData, 0);
-        PackUnsignedData(4, Header.OriginalSize, headerData, 1);
-        PackUnsignedData(4, Header.CompressedSize, headerData, 5);
-        PackUnsignedData(4, Header.OriginalCrc, headerData, 9);
-        Header.HeaderCrc = CalculateBlockCRC32(13, Header.HeaderCrc, headerData);
-        Header.HeaderCrc ^= CrcMask;
-        PackUnsignedData(4, Header.HeaderCrc, headerData, 13);
-
-        OutputCarFile?.Write(headerData, 0, 17);
-    }
-
-    public static void PackUnsignedData(int numberOfBytes, ulong number, byte[] buffer, int offset)
-    {
-        for (int i = 0; i < numberOfBytes; i++)
-        {
-            buffer[offset + i] = (byte)(number & 0xFF);
-            number >>= 8;
-        }
-    }
-
-    public void WriteEndOfCarHeader()
-    {
-        OutputCarFile.WriteByte(0);
-        InputCarFile.Close();
-        OutputCarFile.Close();
-    }
-    /*
-    public static void Insert2(FileStream inputTextFile, string operation)
-    {
-        long savedPositionOfHeader;
-        long savedPositionOfFile;
-
-        Console.Error.Write($"{operation} {Header.FileName,-20}");
-
-        savedPositionOfHeader = OutputCarFile?.Position ?? 0;
-        Header.CompressionMethod = (char)2;
-        WriteFileHeader();
-
-        savedPositionOfFile = OutputCarFile?.Position ?? 0;
-        inputTextFile.Seek(0, SeekOrigin.End);
-        Header.OriginalSize = (ulong)inputTextFile.Length;
-        inputTextFile.Seek(0, SeekOrigin.Begin);
-        int rc = 0;
-        rc = LZSSCompress(inputTextFile);
-        if (rc != 1)
-        {
-            Header.CompressionMethod = (char)1;
-            OutputCarFile?.Seek(savedPositionOfFile, SeekOrigin.Begin);
-            inputTextFile.Seek(0, SeekOrigin.Begin);
-            Store(inputTextFile);
-        }
-
-        inputTextFile.Close();
-
-        OutputCarFile?.Seek(savedPositionOfHeader, SeekOrigin.Begin);
-        WriteFileHeader();
-        OutputCarFile?.Seek(0L, SeekOrigin.End);
-        Console.WriteLine($" {RatioInPercent(Header.CompressedSize, Header.OriginalSize)}%");
-    } */
-
-    private void Insert(Stream inputTextFile, string operation)
-    {
-        Console.Error.Write("{0} {1,-20}", operation, Header.FileName);
-
-        long savedPositionOfHeader = OutputCarFile.Position;
-        Header.CompressionMethod = (char)2;
-        WriteFileHeader();
-
-        long savedPositionOfFile = OutputCarFile.Position;
-        Header.OriginalSize = (ulong)inputTextFile.Length;
-        inputTextFile.Seek(0, SeekOrigin.Begin);
-
-        if (!LZSSCompress(inputTextFile))
-        {
-            Header.CompressionMethod = (char)1;
-            OutputCarFile.Seek(savedPositionOfFile, SeekOrigin.Begin);
-            inputTextFile.Seek(0, SeekOrigin.Begin);
-            Store(inputTextFile);
-        }
-
-        OutputCarFile.Seek(savedPositionOfHeader, SeekOrigin.Begin);
-        WriteFileHeader();
-        OutputCarFile.Seek(0, SeekOrigin.End);
-
-        Console.WriteLine(" {0}%", RatioInPercent(Header.CompressedSize, Header.OriginalSize));
-    }
-
-    private void Extract(Stream destination)
-    {
-        Console.Error.Write("{0,-20} ", Header.FileName);
-        bool error = false;
-
-        Stream outputTextFile = destination;
-        bool shouldClose = false;
-
-        try
-        {
-            if (destination == null)
-            {
-                outputTextFile = new FileStream(Header.FileName, FileMode.Create, FileAccess.Write);
-                shouldClose = true;
-            }
-
-            ulong crc;
-            switch (Header.CompressionMethod)
-            {
-                case (char)1:
-                    crc = Unstore(outputTextFile);
-                    break;
-                case (char)2:
-                    crc = LZSSExpand(outputTextFile);
-                    break;
-                default:
-                    Console.Error.Write("Unknown method: {0}", Header.CompressionMethod);
-                    SkipOverFileFromInputCar();
-                    error = true;
-                    crc = Header.OriginalCrc;
-                    break;
-            }
-
-            if (crc != Header.OriginalCrc)
-            {
-                Console.Error.Write("CRC error reading data");
-                error = true;
-            }
-
-            if (!error)
-                Console.Error.Write(" OK");
-        }
-        catch
-        {
-            Console.Error.Write("Can't open {0}", Header.FileName);
-            Console.Error.Write("Not extracted");
-            SkipOverFileFromInputCar();
-        }
-        finally
-        {
-            if (shouldClose)
-            {
-                outputTextFile?.Close();
-
-                if (error)
-                {
-                    try { File.Delete(Header.FileName); } catch { }
+                    if (error)
+                    {
+                        try { File.Delete(CurrentHeader.file_name); } catch { }
+                    }
                 }
             }
         }
-    }
-    
-    private bool Store(Stream inputTextFile)
-    {
-        byte[] buffer = new byte[256];
-        int pacifier = 0;
-        Header.OriginalCrc = CrcMask;
-
-        int bytesRead;
-        while ((bytesRead = inputTextFile.Read(buffer, 0, 256)) > 0)
+        private int FindNextNode(int node)
         {
-            OutputCarFile.Write(buffer, 0, bytesRead);
-            Header.OriginalCrc = CalculateBlockCRC32((uint)bytesRead, Header.OriginalCrc, buffer);
-
-            if ((++pacifier & 15) == 0)
-                Console.Error.Write('.');
+            int next = tree[node].smaller_child;
+            while (tree[next].larger_child != UNUSED)
+                next = tree[next].larger_child;
+            return next;
         }
-
-        Header.CompressedSize = Header.OriginalSize;
-        Header.OriginalCrc ^= CrcMask;
-        return true;
-    }
-
-    private ulong Unstore(Stream destination)
-    {
-        ulong crc = CrcMask;
-        byte[] buffer = new byte[256];
-        int pacifier = 0;
-        ulong remaining = Header.OriginalSize;
-
-        while (remaining > 0)
+        private void FatalError(string message, params object[] args)
         {
-            int count = (int)Math.Min(remaining, 256);
-            if (InputCarFile.Read(buffer, 0, count) != count)
-                FatalError("Can't read from input CAR file");
+            Console.Error.WriteLine();
+            Console.Error.WriteLine(message, args);
+            Console.Error.WriteLine();
 
-            destination.Write(buffer, 0, count);
-            crc = CalculateBlockCRC32((uint)count, crc, buffer);
-
-            if (destination != Console.OpenStandardOutput() && (++pacifier & 15) == 0)
-                Console.Error.Write('.');
-
-            remaining -= (uint)count;
-        }
-
-        return crc ^ CrcMask;
-    }
-    public static void ListCarFileEntry()
-    {
-        string[] methods = { "Stored", "LZSS" };
-
-        Console.WriteLine(
-            $"{Header.FileName,-20} " +
-            $"{Header.OriginalSize,10} " +
-            $"{Header.CompressedSize,11} " +
-            $"{RatioInPercent(Header.CompressedSize, Header.OriginalSize),5}% " +
-            $"  {Header.OriginalCrc:X8} " +
-            $"{methods[Header.CompressionMethod - 1],5}");
-    }
-
-    private void SkipOverFileFromInputCar()
-    {
-        InputCarFile.Seek((long)Header.CompressedSize, SeekOrigin.Current);
-    }
-
-    public void BuildCRCTable()
-    {
-        int i;
-        int j;
-        ulong value;
-
-        for (i = 0; i <= 255; i++)
-        {
-            value = (uint)i; //Convert.ToUInt64(i);
-            for (j = 8; j > 0; j--)
+            if (OutputCarFile != null)
             {
-                if ((value & 1) != 0)
-                    value = (value >> 1) ^ Crc32Polynomial;
+                OutputCarFile.Close();
+                try { File.Delete(TempFileName); } catch { }
+            }
+
+            Environment.Exit(1);
+        }
+
+        private int FlushOutputBuffer()
+        {
+            if (bufferOffset == 1)
+                return 1;
+
+            CurrentHeader.compressed_size += (uint)bufferOffset;
+            if (CurrentHeader.compressed_size >= CurrentHeader.original_size)
+                return 0;
+
+            OutputCarFile.Write(dataBuffer, 0, bufferOffset); //dataBuffer.Length);  //
+            InitOutputBuffer();
+            return 1;
+        }
+        private void Insert(Stream inputTextFile, string operation)
+        {
+            Console.Error.Write("{0} {1,-20}", operation, CurrentHeader.file_name);
+
+            long savedPositionOfHeader = OutputCarFile.Position;
+            CurrentHeader.compression_method = (char)2;
+            WriteFileHeader();
+
+            long savedPositionOfFile = OutputCarFile.Position;
+            inputTextFile.Seek(0, SeekOrigin.End);
+            CurrentHeader.original_size = (uint)inputTextFile.Length;
+            inputTextFile.Seek(0, SeekOrigin.Begin);
+            //inputTextFile.Seek(0, SeekOrigin.Begin);
+
+            if (LZSSCompress(inputTextFile) == 0)
+            {
+                CurrentHeader.compression_method = (char)1;
+                OutputCarFile.Seek(savedPositionOfFile, SeekOrigin.Begin);
+                inputTextFile.Seek(0, SeekOrigin.Begin);
+                Store(inputTextFile);
+            }
+            inputTextFile.Close();
+            OutputCarFile.Seek(savedPositionOfHeader, SeekOrigin.Begin);
+            WriteFileHeader();
+            OutputCarFile.Seek(0, SeekOrigin.End);
+
+            Console.WriteLine(" {0}%", RatioInPercent(CurrentHeader.compressed_size, CurrentHeader.original_size));
+        }
+        private void InitInputBuffer()
+        {
+            flagBitMask = 1;
+            dataBuffer[0] = (byte)InputCarFile.ReadByte();
+        }
+
+        private int InputBit()
+        {
+            if (flagBitMask == 0x100)
+                InitInputBuffer();
+
+            flagBitMask <<= 1;
+            int result = (dataBuffer[0] & (flagBitMask >> 1));
+            return result;
+        }
+        private void InitTree(int r)
+        {
+            for (int i = 0; i < WINDOW_SIZE + 1; i++)
+            {
+                tree[i].parent = UNUSED;
+                tree[i].larger_child = UNUSED;
+                tree[i].smaller_child = UNUSED;
+            }
+
+            tree[TREE_ROOT].larger_child = r;
+            tree[r].parent = TREE_ROOT;
+            tree[r].larger_child = UNUSED;
+            tree[r].smaller_child = UNUSED;
+        }
+        private void InitOutputBuffer()
+        {
+            dataBuffer[0] = 0;
+            flagBitMask = 1;
+            bufferOffset = 1;
+        }
+
+        private ulong LZSSExpand(Stream output)
+        {
+            int c;
+            int currentPosition = 1;
+            uint crc = (uint)CRC_MASK;
+            ulong outputCount = 0;
+            int matchLength;
+            int matchPosition;
+
+            InitInputBuffer();
+
+            while (outputCount < CurrentHeader.original_size)
+            {
+                if (InputBit() == 1)
+                {
+                    c = InputCarFile.ReadByte();
+                    output.WriteByte((byte)c);
+                    outputCount++;
+                    crc = (uint)UpdateCharacterCRC32(crc, c);
+                    window[currentPosition] = (byte)c;
+                    currentPosition = ModWindow(currentPosition + 1);
+
+                    if (currentPosition == 0 && output != Console.OpenStandardOutput())
+                        Console.Error.Write('.');
+                }
                 else
-                    value >>= 1;
+                {
+                    matchLength = InputCarFile.ReadByte();
+                    matchPosition = InputCarFile.ReadByte();
+                    matchPosition |= (matchLength & 0xf) << 8;
+                    matchLength >>= 4;
+                    matchLength += BREAK_EVEN;
+                    outputCount += (ulong)(matchLength + 1);
+
+                    for (int i = 0; i <= matchLength; i++)
+                    {
+                        c = window[ModWindow(matchPosition + i)];
+                        output.WriteByte((byte)c);
+                        crc = (uint)UpdateCharacterCRC32(crc, c);
+                        window[currentPosition] = (byte)c;
+                        currentPosition = ModWindow(currentPosition + 1);
+
+                        if (currentPosition == 0 && output != Console.OpenStandardOutput())
+                            Console.Error.Write('.');
+                    }
+                }
             }
-            Ccitt32Table[i] = value;
-        }
-    }
-    public static ulong CalculateBlockCRC32(uint count, ulong crc, byte[] buffer)
-    {
-        for (int i = 0; i < count; i++)
-        {
-            ulong temp1 = (crc >> 8) & 0x00FFFFFF;
-            ulong temp2 = Ccitt32Table[(crc ^ buffer[i]) & 0xFF];
-            crc = temp1 ^ temp2;
-        }
-        return crc;
-    }
 
-    public static ulong UpdateCharacterCRC32(ulong crc, int c)
-    {
-        ulong temp1;
-        ulong temp2;
-
-        temp1 = ((crc >> 8) & 0x00FFFFFF);
-        temp2 = Ccitt32Table[((int)crc ^ c) & 0xff];
-        crc = temp1 ^ temp2;
-        return (crc);
-    }
-    public static void InitTree(int r)
-    {
-        // Since the tree is static data, every node is already 0 (UNUSED).
-        // However, we explicitly initialize all nodes for clarity.
-        for (int i = 0; i < WINDOW_SIZE + 1; i++)
-        {
-            Tree[i].Parent = UNUSED;
-            Tree[i].LargerChild = UNUSED;
-            Tree[i].SmallerChild = UNUSED;
+            return crc ^ CRC_MASK;
         }
 
-        // Insert the initial phrase to establish the root.
-        Tree[TREE_ROOT].LargerChild = r;
-        Tree[r].Parent = TREE_ROOT;
-        Tree[r].LargerChild = UNUSED;
-        Tree[r].SmallerChild = UNUSED;
-    }
-
-    /// Contracts the node by replacing the old node with a new node.
-    /// </summary>
-    public static void ContractNode(int oldNode, int newNode)
-    {
-        // Set the new node's parent to the old node's parent.
-        Tree[newNode].Parent = Tree[oldNode].Parent;
-
-        int parent = Tree[oldNode].Parent;
-        // Replace the link from the parent to the old node with a link to the new node.
-        if (Tree[parent].LargerChild == oldNode)
-        {
-            Tree[parent].LargerChild = newNode;
-        }
-        else
-        {
-            Tree[parent].SmallerChild = newNode;
-        }
-        // Mark the old node as unused.
-        Tree[oldNode].Parent = UNUSED;
-    }
-
-    /// <summary>
-    /// Replaces the old node with the new node when the new node was not previously in the tree.
-    /// </summary>
-    public static void ReplaceNode(int oldNode, int newNode)
-    {
-        int parent = Tree[oldNode].Parent;
-        if (Tree[parent].SmallerChild == oldNode)
-        {
-            Tree[parent].SmallerChild = newNode;
-        }
-        else
-        {
-            Tree[parent].LargerChild = newNode;
-        }
-        // Copy the entire node data.
-        Tree[newNode] = Tree[oldNode];
-        // Update the children of the new node so that their parent is set to newNode.
-        int smaller = Tree[newNode].SmallerChild;
-        int larger = Tree[newNode].LargerChild;
-        if (smaller != UNUSED)
-        {
-            Tree[smaller].Parent = newNode;
-        }
-        if (larger != UNUSED)
-        {
-            Tree[larger].Parent = newNode;
-        }
-        // Mark the old node as unused.
-        Tree[oldNode].Parent = UNUSED;
-    }
-
-    /// <summary>
-    /// Finds the next smallest node after the given node.
-    /// Assumes that the node has a smaller child.
-    /// </summary>
-    public static int FindNextNode(int node)
-    {
-        int next = Tree[node].SmallerChild;
-        while (Tree[next].LargerChild != UNUSED)
-        {
-            next = Tree[next].LargerChild;
-        }
-        return next;
-    }
-
-    /// <summary>
-    /// Deletes the node from the binary tree using the classic deletion algorithm.
-    /// </summary>
-    public static void DeleteString(int p)
-    {
-        if (Tree[p].Parent == UNUSED)
-            return;
-
-        if (Tree[p].LargerChild == UNUSED)
-        {
-            ContractNode(p, Tree[p].SmallerChild);
-        }
-        else if (Tree[p].SmallerChild == UNUSED)
-        {
-            ContractNode(p, Tree[p].LargerChild);
-        }
-        else
-        {
-            int replacement = FindNextNode(p);
-            DeleteString(replacement);
-            ReplaceNode(p, replacement);
-        }
-    }
-
-    /// Adds the new node to the binary tree. While doing so, it searches for the best match among all
-    /// existing nodes in the tree and returns the match length. If a duplicate is found, the old node is replaced.
-    public static int AddString(int newNode, out int matchPosition)
-    {
-        // If we've reached the end-of-stream, return 0.
-        if (newNode == END_OF_STREAM)
-        {
-            matchPosition = 0;
-            return 0;
-        }
-
-        int testNode = Tree[TREE_ROOT].LargerChild;
-        int matchLength = 0;
-        matchPosition = 0;
-
-        // Infinite loop; exit occurs when the appropriate child pointer is unused.
-        while (true)
+        private int LZSSCompress(Stream inputTextFile)
         {
             int i;
-            int delta = 0;
+            int c;
+            int lookAheadBytes;
+            int currentPosition = 1;
+            int replaceCount=0;
+            int matchLength = 0;
+            int matchPosition = 0;
 
-            // Compare the strings in the window.
+            CurrentHeader.compressed_size = 0;
+            CurrentHeader.original_crc = CRC_MASK;
+            InitOutputBuffer();
+
+            // Initialize window
             for (i = 0; i < LOOK_AHEAD_SIZE; i++)
             {
-                int indexNew = ModWindow(newNode + i);
-                int indexTest = ModWindow(testNode + i);
-                delta = Window[indexNew] - Window[indexTest];
-                if (delta != 0)
-                    break;
-            }
-
-            if (i >= matchLength)
-            {
-                matchLength = i;
-                matchPosition = testNode;
-                if (matchLength >= LOOK_AHEAD_SIZE)
-                {
-                    ReplaceNode(testNode, newNode);
-                    return matchLength;
-                }
-            }
-
-            // Decide which subtree to follow.
-            if (delta >= 0)
-            {
-                // Check if the larger child link is unused.
-                if (Tree[testNode].LargerChild == UNUSED)
-                {
-                    Tree[testNode].LargerChild = newNode;
-                    Tree[newNode].Parent = testNode;
-                    Tree[newNode].LargerChild = UNUSED;
-                    Tree[newNode].SmallerChild = UNUSED;
-                    return matchLength;
-                }
-                testNode = Tree[testNode].LargerChild;
-            }
-            else
-            {
-                // Check if the smaller child link is unused.
-                if (Tree[testNode].SmallerChild == UNUSED)
-                {
-                    Tree[testNode].SmallerChild = newNode;
-                    Tree[newNode].Parent = testNode;
-                    Tree[newNode].LargerChild = UNUSED;
-                    Tree[newNode].SmallerChild = UNUSED;
-                    return matchLength;
-                }
-                testNode = Tree[testNode].SmallerChild;
-            }
-        }
-    }
-    public static int Putc(int ch, FileStream fileStream)
-    {
-        try
-        {
-            fileStream.WriteByte((byte)ch); // Write the character to the file
-            return ch; // Return the written character as an integer
-        }
-        catch (Exception)
-        {
-            return -1; // Return -1 to indicate an error, similar to C's `putc`
-        }
-    }
-    public static int Getc(FileStream fileStream)
-    {
-        if (fileStream == null)
-            throw new ArgumentNullException(nameof(fileStream));
-
-        if (!fileStream.CanRead)
-            throw new IOException("File stream is not readable");
-
-        int nextChar = fileStream.ReadByte();
-        return nextChar;
-    }
-    public static uint BufferOffset;
-    //public static char[] DataBuffer = new char[17];
-    public static byte[] DataBuffer = new byte[17];
-    public static int FlagBitMask;
-
-    public static void InitOutputBuffer()
-    {
-        DataBuffer[0] = 0;
-        FlagBitMask = 1;
-        BufferOffset = 1;
-    }
-    private bool FlushOutputBuffer()
-    {
-        if (BufferOffset == 1)
-            return true;
-        Header.CompressedSize += BufferOffset;
-        if ((Header.CompressedSize) >= Header.OriginalSize)
-            return false;
-
-        OutputCarFile.Write(DataBuffer, 0, DataBuffer.Length);
-        InitOutputBuffer();
-        return true;
-    }
-
-    private bool OutputChar(int data)
-    {
-        DataBuffer[BufferOffset++] = (byte)data;
-        DataBuffer[0] |= (byte)FlagBitMask;
-        FlagBitMask <<= 1;
-        if (FlagBitMask == 0x100)   // ? FlushOutputBuffer() : true;
-            return (FlushOutputBuffer());
-        else
-            return true;
-    }
-
-    private bool OutputPair(int position, int length)
-    {
-        DataBuffer[BufferOffset] = (byte)(length << 4);
-        DataBuffer[BufferOffset++] |= (byte)(position >> 8);
-        DataBuffer[BufferOffset++] = (byte)(position & 0xff);
-        FlagBitMask <<= 1;
-        return FlagBitMask == 0x100 ? FlushOutputBuffer() : true;
-    }
-    public static void InitInputBuffer()
-    {
-        FlagBitMask = 1;
-        DataBuffer[0] = (byte)Getc(InputCarFile);
-    }
-
-    public static int InputBit()
-    {
-        if (FlagBitMask == 0x100)
-            InitInputBuffer();
-        FlagBitMask <<= 1;
-        return ((DataBuffer[0]) & (FlagBitMask >> 1));
-    }
-
-    public static void FatalError(string message, params object[] args)
-    {
-        Console.Error.WriteLine(message, args);
-        Environment.Exit(1);
-    }
-
-    /*
-    private bool LZSSCompress(Stream inputTextFile)
-    {
-        int i;
-        int c;
-        int lookAheadBytes;
-        int currentPosition = 1;
-        int replaceCount;
-        int matchLength = 0;
-        int matchPosition = 0;
-
-        CurrentHeader.compressed_size = 0;
-        CurrentHeader.original_crc = CRC_MASK;
-        InitOutputBuffer();
-
-        // Initialize window
-        for (i = 0; i < LOOK_AHEAD_SIZE; i++)
-        {
-            c = inputTextFile.ReadByte();
-            if (c == -1)
-                break;
-
-            window[currentPosition + i] = (byte)c;
-            CurrentHeader.original_crc = UpdateCharacterCRC32(CurrentHeader.original_crc, c);
-        }
-
-        lookAheadBytes = i;
-        InitTree(currentPosition);
-
-        while (lookAheadBytes > 0)
-        {
-            if (matchLength > lookAheadBytes)
-                matchLength = lookAheadBytes;
-
-            if (matchLength <= BREAK_EVEN)
-            {
-                replaceCount = 1;
-                if (!OutputChar(window[currentPosition]))
-                    return false;
-            }
-            else
-            {
-                if (!OutputPair(matchPosition, matchLength - (BREAK_EVEN + 1)))
-                    return false;
-                replaceCount = matchLength;
-            }
-
-            for (i = 0; i < replaceCount; i++)
-            {
-                DeleteString(ModWindow(currentPosition + LOOK_AHEAD_SIZE));
-
                 c = inputTextFile.ReadByte();
                 if (c == -1)
+                    break;
+
+                window[currentPosition + i] = (byte)c;
+                CurrentHeader.original_crc = UpdateCharacterCRC32(CurrentHeader.original_crc, c);
+            }
+
+            lookAheadBytes = i;
+            InitTree(currentPosition);
+
+            while (lookAheadBytes > 0)
+            {
+                if (matchLength > lookAheadBytes) matchLength = lookAheadBytes;
+
+                if (matchLength <= BREAK_EVEN)
                 {
-                    lookAheadBytes--;
+                    replaceCount = 1;
+                    if (OutputChar(window[currentPosition]) == 0)
+                        return 0;
                 }
                 else
                 {
-                    CurrentHeader.original_crc = UpdateCharacterCRC32(CurrentHeader.original_crc, c);
-                    window[ModWindow(currentPosition + LOOK_AHEAD_SIZE)] = (byte)c;
+                    if (OutputPair(matchPosition, matchLength - (BREAK_EVEN + 1)) == 0)
+                        return 0;
+
+                    replaceCount = matchLength;
                 }
 
-                currentPosition = ModWindow(currentPosition + 1);
-                if (currentPosition == 0)
-                    Console.Error.Write('.');
-
-                if (lookAheadBytes > 0)
-                    matchLength = AddString(currentPosition, out matchPosition);
-            }
-        }
-
-        CurrentHeader.original_crc ^= CRC_MASK;
-        return FlushOutputBuffer();
-    } */
-
-    // LZSS Compression and Expansion Methods
-    private bool LZSSCompress(Stream inputTextStream)
-    {
-        int i;
-        int c;
-        int lookAheadBytes;
-        int currentPosition = 1;
-        int replaceCount;
-        int matchLength = 0;
-        int matchPosition = 0;
-
-        Header.CompressedSize = 0;
-        Header.OriginalCrc = CrcMask;
-        InitOutputBuffer();
-
-        // Read LOOK_AHEAD_SIZE bytes into the window.
-        for (i = 0; i < LOOK_AHEAD_SIZE; i++)
-        {
-            c = inputTextStream.ReadByte();
-            //c = Getc(inputTextStream);
-            if (c == -1)
-                break;
-            Window[currentPosition + i] = (byte)c;
-            Header.OriginalCrc = UpdateCharacterCRC32(Header.OriginalCrc, c);
-        }
-        lookAheadBytes = i;
-        InitTree(currentPosition);
-
-        matchLength = 0;
-        matchPosition = 0;
-        while (lookAheadBytes > 0)
-        {
-            if (matchLength > lookAheadBytes)
-                matchLength = lookAheadBytes;
-            if (matchLength <= BREAK_EVEN)
-            {
-                replaceCount = 1;
-                if (OutputChar(Window[currentPosition]))
-                    return false;
-            }
-            else
-            {
-                if (OutputPair(matchPosition, matchLength - (BREAK_EVEN + 1)))
-                    return false;
-                replaceCount = matchLength;
-            }
-            for (i = 0; i < replaceCount; i++)
-            {
-                DeleteString(ModWindow(currentPosition + LOOK_AHEAD_SIZE));
-                c = inputTextStream.ReadByte();
-                //c = Getc(inputTextStream);
-                if (c == -1)
+                for (i = 0; i < replaceCount; i++)
                 {
-                    lookAheadBytes--;
-                }
-                else
-                {
-                    Header.OriginalCrc = UpdateCharacterCRC32(Header.OriginalCrc, c);
-                    Window[ModWindow(currentPosition + LOOK_AHEAD_SIZE)] = (byte)c;
-                }
-                currentPosition = ModWindow(currentPosition + 1);
-                if (currentPosition == 0)
-                    Console.Error.Write('.');
-                if (lookAheadBytes > 0)
-                    matchLength = AddString(currentPosition, out matchPosition);
-            }
-        }
-        Header.OriginalCrc ^= CrcMask;
-        return FlushOutputBuffer();
-    }
+                    DeleteString(ModWindow(currentPosition + LOOK_AHEAD_SIZE));
 
-    private ulong LZSSExpand(Stream output)
-    {
-        int current_position = 1;
-        ulong output_count = 0;
-        ulong crc = CrcMask;
-        InitInputBuffer();
-;
-        while (output_count < Header.OriginalSize)
-        {
-            if (InputBit() != 0)
-            {
-                //c = Getc(InputCarFile);
-                //Putc(c, output);
-                int c = InputCarFile.ReadByte();
-                output.WriteByte((byte)c);
-                output_count++;
-                crc = UpdateCharacterCRC32(crc, c);
-                Window[current_position] = (byte)c;
-                current_position = ModWindow(current_position + 1);
-                if (current_position == 0 && output != Console.OpenStandardOutput())
-                {
-                    Console.Write('.');
+                    c = inputTextFile.ReadByte();
+                    if (c == -1)
+                    {
+                        lookAheadBytes--;
+                    }
+                    else
+                    {
+                        CurrentHeader.original_crc = UpdateCharacterCRC32(CurrentHeader.original_crc, c);
+                        window[ModWindow(currentPosition + LOOK_AHEAD_SIZE)] = (byte)c;
+                    }
+
+                    currentPosition = ModWindow(currentPosition + 1);
+                    if (currentPosition == 0)
+                        Console.Error.Write('.');
+
+                    if (lookAheadBytes > 0)
+                        matchLength = AddString(currentPosition, out matchPosition);
                 }
             }
-            else
-            {
-                //match_length = Getc(InputCarFile);
-                //match_position = Getc(InputCarFile);
-                int match_length = InputCarFile.ReadByte();
-                int match_position = InputCarFile.ReadByte();
-                match_position |= (match_length & 0xf) << 8;
-                match_length >>= 4;
-                match_length += BREAK_EVEN;
-                output_count += (ulong)(match_length + 1);
-                for (int i = 0; i <= match_length; i++)
-                {
-                    byte c = Window[ModWindow(match_position + i)];
-                    //Putc(c, output);
-                    output.WriteByte(c);
-                    crc = UpdateCharacterCRC32(crc, c);
-                    Window[current_position] = c;
-                    current_position = ModWindow(current_position + 1);
-                    if (current_position == 0 && output != Console.OpenStandardOutput())
-                        Console.Write('.');
-                }
-            }
+
+            CurrentHeader.original_crc ^= CRC_MASK;
+            return FlushOutputBuffer();
         }
-        return (crc ^ CrcMask);
-    }
-    public static void Main(string[] args)
-    {
-        CarProcessor processor = new CarProcessor();
-
-        Console.Error.Write("CARMAN 1.0 : ");
-        processor.BuildCRCTable();
-
-        char command = processor.ParseArguments(args.Length, args); //ParseArguments(args);
-        Console.Error.WriteLine();
-
-        processor.OpenArchiveFiles(args[1], command);
-        //BuildFileList(args.Skip(2).ToArray(), command);
-        processor.BuildFileList(args.Length, args.Skip(2).ToArray(), command);
-
-        int count = 0;
-        if (command == 'A')
+        private void ListCarFileEntry()
         {
-            count = processor.AddFileListToArchive();
+            string[] methods = { "Stored", "LZSS" };
+            Console.WriteLine("{0,-20} {1,10}  {2,10}  {3,4}%     {4:X8}   {5}",
+                CurrentHeader.file_name,
+                CurrentHeader.original_size,
+                CurrentHeader.compressed_size,
+                RatioInPercent(CurrentHeader.compressed_size, CurrentHeader.original_size),
+                CurrentHeader.original_crc,
+                methods[CurrentHeader.compression_method - 1]);
         }
-
-        if (command == 'L')
+        private int ModWindow(int a) => a & (WINDOW_SIZE - 1);
+        private void OpenArchiveFiles(string name, char command)
         {
-            processor.PrintListTitles();
-        }
+            CarFileName = name;
 
-        count = processor.ProcessAllFilesInInputCar(command, count);
-
-        if (CarProcessor.OutputCarFile != null && count != 0)
-        {
-            processor.WriteEndOfCarHeader();
-            CarProcessor.OutputCarFile.Close();
-
+            // Try to open the input file
             try
             {
-                if (File.Exists(CarProcessor.CarFileName))
-                {
-                    File.Delete(CarProcessor.CarFileName);
-                    //File.Copy(CarProcessor.TempFileName, CarProcessor.CarFileName);
-                    //File.Delete(CarProcessor.CarFileName);
-                    //File.Replace(CarProcessor.TempFileName, CarProcessor.CarFileName, CarProcessor.CarFileName+".bak");
-                
-                }
-                Console.WriteLine("Copy temp to original {0}", CarProcessor.TempFileName);
-                File.Move(CarProcessor.TempFileName, CarProcessor.CarFileName);
+                InputCarFile = new FileStream(CarFileName, FileMode.Open, FileAccess.Read);
             }
-            catch (Exception ex)
+            catch
             {
-                CarProcessor.FatalError($"Can't rename temporary file: {ex.Message}");
+                // If not found and no extension, try adding .car
+                if (Path.GetExtension(CarFileName) == "")
+                {
+                    CarFileName += ".car";
+                    try
+                    {
+                        InputCarFile = new FileStream(CarFileName, FileMode.Open, FileAccess.Read);
+                    }
+                    catch
+                    {
+                        InputCarFile = null;
+                    }
+                }
+                else
+                {
+                    InputCarFile = null;
+                }
+            }
+
+            if (InputCarFile == null && command != 'A')
+                FatalError("Can't open archive '{0}'", CarFileName);
+
+            if (command == 'A' || command == 'R' || command == 'D')
+            {
+                string tempDir = Path.GetTempPath();
+                string tempName;
+                int i;
+                for (i = 0; i < 10; i++)
+                {
+                    tempName = Path.Combine(tempDir, $"{Path.GetFileNameWithoutExtension(CarFileName)}.$${i}");
+                    Console.WriteLine("temp: {0}", tempName);
+                    if (!File.Exists(tempName))
+                        break;
+                }
+
+                if (i == 10)
+                    FatalError("Can't open temporary file");
+
+                TempFileName = Path.Combine(tempDir, $"{Path.GetFileNameWithoutExtension(CarFileName)}.$${i}");
+                try
+                {
+                    OutputCarFile = new FileStream(TempFileName, FileMode.Create, FileAccess.Write);
+                }
+                catch
+                {
+                    FatalError("Can't open temporary file {0}", TempFileName);
+                }
+            }
+        }
+        private int OutputChar(int data)
+        {
+            dataBuffer[bufferOffset++] = (byte)data;
+            dataBuffer[0] |= (byte)flagBitMask;
+            flagBitMask <<= 1;
+            //Console.WriteLine($"{dataBuffer} flagbit {flagBitMask}");
+            if (flagBitMask == 0x100) 
+                return (FlushOutputBuffer());
+            else
+                return 1;
+            //return flagBitMask == 0x100 ? FlushOutputBuffer() : true;
+        }
+
+        private int OutputPair(int position, int length)
+        {
+            dataBuffer[bufferOffset] = (byte)(length << 4);
+            dataBuffer[bufferOffset++] |= (byte)(position >> 8);
+            dataBuffer[bufferOffset++] = (byte)(position & 0xff);
+            flagBitMask <<= 1;
+            return flagBitMask == 0x100 ? FlushOutputBuffer() : 1;
+        }
+        private char ParseArguments(string[] args)
+        {
+            if (args.Length < 2 || args[0].Length > 1)
+            {
+                UsageExit();
+                return '\0';
+            }
+
+            char command = char.ToUpper(args[0][0]);
+            switch (command)
+            {
+                case 'X':
+                    Console.Error.Write("Extracting files");
+                    break;
+                case 'R':
+                    Console.Error.Write("Replacing files");
+                    break;
+                case 'P':
+                    Console.Error.Write("Print files to stdout");
+                    break;
+                case 'T':
+                    Console.Error.Write("Testing integrity of files");
+                    break;
+                case 'L':
+                    Console.Error.Write("Listing archive contents");
+                    break;
+                case 'A':
+                    if (args.Length <= 2)
+                        UsageExit();
+                    Console.Error.Write("Adding/replacing files to archive");
+                    break;
+                case 'D':
+                    if (args.Length <= 2)
+                        UsageExit();
+                    Console.Error.Write("Deleting files from archive");
+                    break;
+                default:
+                    UsageExit();
+                    break;
+            }
+            return command;
+        }
+
+        private int ProcessAllFilesInInputCar(char command, int count)
+        {
+            Stream outputDestination = null;
+            try
+            {
+                if (command == 'P')
+                {
+                    outputDestination = Console.OpenStandardOutput();
+                }
+                else if (command == 'T')
+                {
+                    outputDestination = new FileStream(Path.GetTempFileName(), FileMode.Create);
+                }
+
+                while (InputCarFile != null && ReadFileHeader() != 0)
+                {
+                    int matched = SearchFileList(CurrentHeader.file_name);
+
+                    switch (command)
+                    {
+                        case 'D':
+                            if (matched == 1)
+                            {
+                                SkipOverFileFromInputCar();
+                                count++;
+                            }
+                            else
+                            {
+                                CopyFileFromInputCar();
+                            }
+                            break;
+                        case 'A':
+                            if (matched == 1)
+                                SkipOverFileFromInputCar();
+                            else
+                                CopyFileFromInputCar();
+                            break;
+                        case 'L':
+                            if (matched == 1)
+                            {
+                                ListCarFileEntry();
+                                count++;
+                            }
+                            SkipOverFileFromInputCar();
+                            break;
+                        case 'P':
+                        case 'X':
+                        case 'T':
+                            if (matched == 1)
+                            {
+                                Extract(outputDestination);
+                                count++;
+                            }
+                            else
+                            {
+                                SkipOverFileFromInputCar();
+                            }
+                            break;
+                        case 'R':
+                            if (matched == 1)
+                            {
+                                try
+                                {
+                                    using (FileStream inputTextFile = new FileStream(CurrentHeader.file_name, FileMode.Open, FileAccess.Read))
+                                    {
+                                        SkipOverFileFromInputCar();
+                                        Insert(inputTextFile, "Replacing");
+                                        count++;
+                                    }
+                                }
+                                catch
+                                {
+                                    Console.Error.Write($"Could not find {CurrentHeader.file_name} for replacement, skipping");
+                                    CopyFileFromInputCar();
+                                }
+                            }
+                            else
+                            {
+                                CopyFileFromInputCar();
+                            }
+                            break;
+                    }
+                }
+            }
+            finally
+            {
+                outputDestination?.Dispose();
+            }
+            return count;
+        }
+
+        private void PrintListTitles()
+        {
+            Console.WriteLine();
+            Console.WriteLine("                           Original  Compressed");
+            Console.WriteLine("     Filename                Size       Size      Ratio    CRC-32    Method");
+            Console.WriteLine("----------------------     --------   ----------  -----   --------   ------");
+        }
+
+        private int RatioInPercent(ulong compressed, ulong original)
+        {
+            if (original == 0)
+                return 0;
+            return (int)(100 - (100L * compressed) / original);
+        }
+        private void Run(string[] args)
+        {
+            Console.Error.Write("CARMAN 1.0 : ");
+            BuildCRCTable();
+
+            char command = ParseArguments(args);
+            Console.Error.WriteLine();
+
+            OpenArchiveFiles(args[1], command);
+            BuildFileList(args.Skip(2).ToArray(), command);
+
+            int count = 0;
+            if (command == 'A')
+            {
+                count = AddFileListToArchive();
+            }
+
+            if (command == 'L')
+            {
+                PrintListTitles();
+            }
+
+            count = ProcessAllFilesInInputCar(command, count);
+
+            if (OutputCarFile != null && count != 0)
+            {
+                WriteEndOfCarHeader();
+                OutputCarFile.Close();
+
+                try
+                {
+                    if (File.Exists(CarFileName))
+                    {
+                        File.Delete(CarFileName);
+                    }
+                    File.Move(TempFileName, CarFileName);
+                }
+                catch (Exception ex)
+                {
+                    FatalError($"Can't rename temporary file: {ex.Message}");
+                }
+            }
+
+            if (command != 'P')
+            {
+                Console.WriteLine($"\n{count} file{(count == 1 ? "" : "s")}");
+            }
+            else
+            {
+                Console.Error.WriteLine($"\n{count} file{(count == 1 ? "" : "s")}");
+            }
+        }
+        private void ReplaceNode(int oldNode, int newNode)
+        {
+            int parent = tree[oldNode].parent;
+            if (tree[parent].smaller_child == oldNode)
+                tree[parent].smaller_child = newNode;
+            else
+                tree[parent].larger_child = newNode;
+
+            tree[newNode] = tree[oldNode];
+            tree[tree[newNode].smaller_child].parent = newNode;
+            tree[tree[newNode].larger_child].parent = newNode;
+            tree[oldNode].parent = UNUSED;
+        }
+        private int ReadFileHeader()
+        {
+            byte[] headerData = new byte[17];
+            ulong headerCrc;
+            int i = 0;
+            StringBuilder fileName = new StringBuilder();
+            while (true)
+            {
+                int c = InputCarFile.ReadByte();
+                if (c == -1) return 0;
+
+                if (c == 0)
+                    break;
+
+                fileName.Append((char)c);
+                if (++i == FILENAME_MAX)
+                    FatalError("File name exceeded maximum in header");
+            }
+
+            if (fileName.Length == 0)
+                return 0;
+
+            CurrentHeader.file_name = fileName.ToString();
+            headerCrc = CalculateBlockCRC32((uint)(i + 1), CRC_MASK, Encoding.ASCII.GetBytes(CurrentHeader.file_name + '\0'));
+
+            if (InputCarFile.Read(headerData, 0, 17) != 17)
+                return 0;
+
+            CurrentHeader.compression_method = (char)headerData[0];
+            CurrentHeader.original_size = BitConverter.ToUInt32(headerData, 1);
+            CurrentHeader.compressed_size = BitConverter.ToUInt32(headerData, 5);
+            CurrentHeader.original_crc = BitConverter.ToUInt32(headerData, 9);
+            CurrentHeader.header_crc = BitConverter.ToUInt32(headerData, 13);
+
+            headerCrc = CalculateBlockCRC32(13, headerCrc, headerData);
+            headerCrc ^= CRC_MASK;
+
+            if (CurrentHeader.header_crc != headerCrc)
+                FatalError("Header checksum error for file {0}", CurrentHeader.file_name);
+
+            return 1;
+        }
+        private bool Store(Stream inputTextFile)
+        {
+            byte[] buffer = new byte[256];
+            int pacifier = 0;
+            CurrentHeader.original_crc = CRC_MASK;
+
+            uint bytesRead;
+            while ((bytesRead = (uint)inputTextFile.Read(buffer, 0, 256)) > 0)
+            {
+                OutputCarFile.Write(buffer, 0, (int)bytesRead);
+                CurrentHeader.original_crc = CalculateBlockCRC32(bytesRead, CurrentHeader.original_crc, buffer);
+
+                if ((++pacifier & 15) == 0)
+                    Console.Error.Write('.');
+            }
+
+            CurrentHeader.compressed_size = CurrentHeader.original_size;
+            CurrentHeader.original_crc ^= CRC_MASK;
+            return true;
+        }
+        private int SearchFileList(string fileName)
+        {
+            foreach (string file in FileList)
+            {
+                if (WildCardMatch(fileName, file))
+                    return 1;
+            }
+            return 0;
+        }
+
+        private void SkipOverFileFromInputCar()
+        {
+            InputCarFile.Seek((long)CurrentHeader.compressed_size, SeekOrigin.Current);
+        }
+        private ulong Unstore(Stream destination)
+        {
+            ulong crc = CRC_MASK;
+            uint count;
+            byte[] buffer = new byte[256];
+            int pacifier = 0;
+            //uint remaining = CurrentHeader.original_size;
+
+            while (CurrentHeader.original_size != 0)
+            {
+                if (CurrentHeader.original_size > 256)
+                    count = 256;
+                else
+                    count = (uint)CurrentHeader.original_size;
+
+                count = (uint)CurrentHeader.original_size;
+                if (InputCarFile.Read(buffer, 0, (int)count) != count)
+                    FatalError("Can't read from input CAR file");
+                try
+                {
+                    destination.Write(buffer, 0, (int)count);
+                }
+                catch (IOException)
+                {
+                    Console.Error.WriteLine("Error writing to output file");
+                    return ~CurrentHeader.original_crc;
+                }
+                crc = CalculateBlockCRC32((uint)count, crc, buffer);
+
+                if (destination != Console.OpenStandardOutput() && (++pacifier & 15) == 0)
+                    Console.Error.Write('.');
+
+                CurrentHeader.original_size -= count;
+            }
+
+            return crc ^ CRC_MASK;
+        }
+        private ulong UpdateCharacterCRC32(ulong crc, int c)
+        {
+            ulong temp1 = (crc >> 8) & 0x00FFFFFF;
+            ulong temp2 = Ccitt32Table[((int)crc ^ c) & 0xff];
+            return temp1 ^ temp2;
+        }
+
+        private static void UsageExit()
+        {
+            Console.Error.WriteLine("CARMAN -- Compressed ARchive MANager");
+            Console.Error.WriteLine("Usage: carman command car-file [file ...]");
+            Console.Error.WriteLine("Commands:");
+            Console.Error.WriteLine("  a: Add files to a CAR archive (replace if present)");
+            Console.Error.WriteLine("  x: Extract files from a CAR archive");
+            Console.Error.WriteLine("  r: Replace files in a CAR archive");
+            Console.Error.WriteLine("  d: Delete files from a CAR archive");
+            Console.Error.WriteLine("  p: Print files on standard output");
+            Console.Error.WriteLine("  l: List contents of a CAR archive");
+            Console.Error.WriteLine("  t: Test files in a CAR archive");
+            Console.Error.WriteLine();
+            Environment.Exit(1);
+        }
+        private bool WildCardMatch(string str, string pattern)
+        {
+            string cleaned = string.Join("", pattern.Split(new[] { ".\\" }, StringSplitOptions.None));
+            pattern = cleaned;
+            int strIndex = 0;
+            int patternIndex = 0;
+            int matchPos = 0;
+            int starPos = -1;
+
+            while (strIndex < str.Length)
+            {
+                if (patternIndex < pattern.Length && (pattern[patternIndex] == '?' || pattern[patternIndex] == str[strIndex]))
+                {
+                    strIndex++;
+                    patternIndex++;
+                }
+                else if (patternIndex < pattern.Length && pattern[patternIndex] == '*')
+                {
+                    starPos = patternIndex;
+                    matchPos = strIndex;
+                    patternIndex++;
+                }
+                else if (starPos != -1)
+                {
+                    patternIndex = starPos + 1;
+                    matchPos++;
+                    strIndex = matchPos;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            while (patternIndex < pattern.Length && pattern[patternIndex] == '*')
+            {
+                patternIndex++;
+            }
+
+            return patternIndex == pattern.Length;
+        }
+        void PackUnsignedData(int numberOfBytes, ulong number, byte[] buffer, int offset = 0)
+        {
+            for (int i = 0; i < numberOfBytes; i++)
+            {
+                buffer[offset + i] = (byte)(number & 0xFF);
+                number >>= 8;
             }
         }
 
-        if (command != 'P')
+        private void WriteFileHeader()
         {
-            Console.WriteLine($"\n{count} file{(count == 1 ? "" : "s")}");
+            byte[] headerData = new byte[17];
+            byte[] fileNameBytes = Encoding.ASCII.GetBytes(CurrentHeader.file_name + '\0');
+
+            OutputCarFile.Write(fileNameBytes, 0, fileNameBytes.Length);
+            CurrentHeader.header_crc = CalculateBlockCRC32((uint)fileNameBytes.Length, CRC_MASK, fileNameBytes);
+            PackUnsignedData(1, CurrentHeader.compression_method, headerData, 0);
+            PackUnsignedData(4, CurrentHeader.original_size, headerData, 1);
+            PackUnsignedData(4, CurrentHeader.compressed_size, headerData, 5);
+            PackUnsignedData(4, CurrentHeader.original_crc, headerData, 9);
+            //headerData[0] = (byte)CurrentHeader.compression_method;
+            //BitConverter.GetBytes(CurrentHeader.original_size).CopyTo(headerData, 1);
+            //BitConverter.GetBytes(CurrentHeader.compressed_size).CopyTo(headerData, 5);
+            //BitConverter.GetBytes(CurrentHeader.original_crc).CopyTo(headerData, 9);
+
+            CurrentHeader.header_crc = CalculateBlockCRC32(13, CurrentHeader.header_crc, headerData);
+            CurrentHeader.header_crc ^= CRC_MASK;
+
+            //BitConverter.GetBytes(CurrentHeader.header_crc).CopyTo(headerData, 13);
+            PackUnsignedData(4, CurrentHeader.header_crc, headerData, 13);
+            OutputCarFile.Write(headerData, 0, 17);
         }
-        else
+
+        private void WriteEndOfCarHeader()
         {
-            Console.Error.WriteLine($"\n{count} file{(count == 1 ? "" : "s")}");
+            OutputCarFile.WriteByte(0);
         }
     }
 }
