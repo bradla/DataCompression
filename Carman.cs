@@ -235,10 +235,7 @@ namespace CarManager
         }
         private void CopyFileFromInputCar()
         {
-            Console.WriteLine("CopyFilefrominputcar");
-            WriteFileHeader();
             byte[] buffer = new byte[256];
-            //uint remaining = CurrentHeader.compressed_size;
             uint count = 0;
 
             WriteFileHeader();
@@ -248,11 +245,20 @@ namespace CarManager
                     count = (uint)CurrentHeader.compressed_size;//Math.Min(CurrentHeader.compressed_size, 256);
                 else
                     count = 256;
-                if (InputCarFile.Read(buffer, 0, (int)count) != count)
-                    FatalError("Error reading input file {0}", CurrentHeader.file_name);
 
-                OutputCarFile.Write(buffer, 0, (int)count);
+                if (InputCarFile.Read(buffer, 0, (int)count) != count)
+                    FatalError("CopyFileFromInputCar Error reading input file {0}", CurrentHeader.file_name);
+
                 CurrentHeader.compressed_size -= count;
+
+                try
+                {
+                    OutputCarFile.Write(buffer, 0, (int)count);
+                }
+                catch (IOException)
+                {
+                    FatalError("CopyFileFromInputCar Error writing to output CAR file");
+                }
             }
         }
         private void DeleteString(int p)
@@ -832,6 +838,11 @@ namespace CarManager
             {
                 WriteEndOfCarHeader();
                 OutputCarFile.Close();
+                if (InputCarFile != null)
+                {
+                    InputCarFile.Close();
+                    InputCarFile.Dispose(); // optional, ensures all resources are released
+                }
 
                 try
                 {
@@ -839,11 +850,12 @@ namespace CarManager
                     {
                         File.Delete(CarFileName);
                     }
+                    Console.WriteLine("Copy temp to original {0}", TempFileName);
                     File.Move(TempFileName, CarFileName);
                 }
                 catch (Exception ex)
                 {
-                    FatalError($"Can't rename temporary file: {ex.Message}");
+                    FatalError($"Can't rename temporary file zzz: {ex.Message}");
                 }
             }
 
