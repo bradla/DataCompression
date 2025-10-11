@@ -427,6 +427,33 @@ class CarMan:
 
         return 1
 
+    def ReadFileHeader3(self) -> int:
+        # Read filename (null-terminated)
+        filename_bytes = bytearray()
+        while True:
+            byte = self.InputCarFile.read(1)
+            if not byte or byte == b'\x00':
+                break
+            filename_bytes.extend(byte)
+        
+        if not filename_bytes:
+            return 0
+            
+        self.CurrentHeader.FileName = filename_bytes.decode('ascii', errors='replace')
+        
+        # Read the rest of the header
+        header_data = self.InputCarFile.read(17)
+        if len(header_data) != 17:
+            return 0
+            
+        self.CurrentHeader.CompressionMethod = header_data[0]
+        self.CurrentHeader.OriginalSize = int.from_bytes(header_data[1:5], 'little')
+        self.CurrentHeader.CompressedSize = int.from_bytes(header_data[5:9], 'little')
+        self.CurrentHeader.OriginalCrc = int.from_bytes(header_data[9:13], 'little')
+        self.CurrentHeader.HeaderCrc = int.from_bytes(header_data[13:17], 'little')
+        
+        return 1
+
     def WriteFileHeader(self):
         if self.OutputCarFile is None:
             return
