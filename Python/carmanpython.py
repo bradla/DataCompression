@@ -9,8 +9,10 @@ class CarMan:
     CRC_MASK = 0xFFFFFFFF
     CRC32_POLYNOMIAL = 0xEDB88320
     FILENAME_MAX = 260  # Increased from 128 for modern systems
+    INDEX_BIT_COUNT = 12
+    WINDOW_SIZE = 1 << INDEX_BIT_COUNT
 
-    class Header:
+    class HeaderStruct:
         def __init__(self):
             self.file_name = ""
             self.compression_method = 0
@@ -30,7 +32,7 @@ class CarMan:
         self.InputCarFile: Optional[BinaryIO] = None
         self.CarFileName = ""
         self.OutputCarFile: Optional[BinaryIO] = None
-        self.CurrentHeader = self.Header()
+        self.Header = self.HeaderStruct()
         self.FileList: List[str] = []
         self.Ccitt32Table: List[int] = [0] * 256
 
@@ -54,6 +56,20 @@ class CarMan:
         self.dataBuffer = bytearray(17)
         self.flagBitMask = 0
         self.bufferOffset = 0
+
+    def ModWindow(self, a: int) -> int:
+        return a & (self.WINDOW_SIZE - 1)
+
+    def close_file_if_open(self, file_obj):
+        """Close file if it's open, handle if it's already closed"""
+        try:
+            if not file_obj.closed:
+                file_obj.close()
+                print("File was open and has been closed")
+            else:
+                print("File was already closed")
+        except (AttributeError, ValueError):
+            print("Invalid file object or file was already closed")
 
     def main(self):
         if len(sys.argv) < 2:
@@ -81,6 +97,7 @@ class CarMan:
         if self.OutputCarFile is not None and count != 0:
             self.WriteEndOfCarHeader()
             self.OutputCarFile.close()
+            self.close_file_if_open(self.InputCarFile)
 
             try:
                 if os.path.exists(self.CarFileName):
@@ -196,13 +213,13 @@ class CarMan:
         if command in ('A', 'R', 'D'):
             temp_dir = os.path.expanduser("~")
             temp_name = ""
-            for i in range(10):
+            for i in range(20):
                 temp_name = os.path.join(temp_dir, f"{os.path.splitext(os.path.basename(self.CarFileName))[0]}.$${i}")
                 if not os.path.exists(temp_name):
                     break
 
-            if i == 9:
-                self.FatalError("Can't open temporary file")
+            if i == 19:
+                self.FatalError(f"xxx Can't open temporary file {temp_name}")
 
             self.TempFileName = temp_name
             try:
@@ -250,8 +267,8 @@ class CarMan:
                             break
                     
                     if not skip:
-                        self.CurrentHeader = self.Header()
-                        self.CurrentHeader.file_name = filename
+                        #self.Header = self.Header()
+                        self.Header.file_name = filename
                         self.Insert(input_text_file, "Adding")
             except IOError:
                 print(f"Could not open {filename} to add to CAR file")
@@ -274,8 +291,8 @@ class CarMan:
                             break
 
                     if not skip:
-                        self.CurrentHeader = self.Header()
-                        self.CurrentHeader.file_name = file_name_only
+                        self.Header = self.Header()
+                        self.Header.file_name = file_name_only
                         self.Insert(input_text_file, "Adding")
                         count += 1
             except:
@@ -292,7 +309,7 @@ class CarMan:
                 output_destination = tempfile.NamedTemporaryFile(delete=True)
 
             while self.InputCarFile is not None and self.ReadFileHeader() != 0:
-                matched = self.SearchFileList(self.CurrentHeader.file_name)
+                matched = self.SearchFileList(self.Header.file_name)
 
                 if command == 'D':
                     if matched:
@@ -319,12 +336,12 @@ class CarMan:
                 elif command == 'R':
                     if matched:
                         try:
-                            with open(self.CurrentHeader.file_name, "rb") as input_text_file:
+                            with open(self.Header.file_name, "rb") as input_text_file:
                                 self.SkipOverFileFromInputCar()
                                 self.Insert(input_text_file, "Replacing")
                                 count += 1
                         except:
-                            print(f"Could not find {self.CurrentHeader.file_name} for replacement, skipping", end="", file=sys.stderr)
+                            print(f"Could not find {self.Header.file_name} for replacement, skipping", end="", file=sys.stderr)
                             self.CopyFileFromInputCar()
                     else:
                         self.CopyFileFromInputCar()
@@ -345,21 +362,21 @@ class CarMan:
         return fnmatch.fnmatch(s.lower(), pattern.lower())
 
     def SkipOverFileFromInputCar(self):
-        self.InputCarFile.seek(self.CurrentHeader.compressed_size, os.SEEK_CUR)
+        self.InputCarFile.seek(self.Header.compressed_size, os.SEEK_CUR)
 
     def CopyFileFromInputCar(self):
         if self.OutputCarFile is None:
             return
 
         self.WriteFileHeader()
-        remaining = self.CurrentHeader.compressed_size
+        remaining = self.Header.compressed_size
         buffer_size = 256
 
         while remaining > 0:
             count = min(remaining, buffer_size)
             buffer = self.InputCarFile.read(count)
             if len(buffer) != count:
-                self.FatalError("Error reading input file {}", self.CurrentHeader.file_name)
+                self.FatalError("Error reading input file {}", self.Header.file_name)
             self.OutputCarFile.write(buffer)
             remaining -= count
 
@@ -372,12 +389,12 @@ class CarMan:
     def ListCarFileEntry(self):
         methods = ["Stored", "LZSS"]
         print("{:<20} {:10}  {:10}  {:3}%  {:08X}  {}".format(
-            self.CurrentHeader.file_name,
-            self.CurrentHeader.original_size,
-            self.CurrentHeader.compressed_size,
-            self.RatioInPercent(self.CurrentHeader.compressed_size, self.CurrentHeader.original_size),
-            self.CurrentHeader.original_crc,
-            methods[self.CurrentHeader.compression_method - 1]))
+            self.Header.file_name,
+            self.Header.original_size,
+            self.Header.compressed_size,
+            self.RatioInPercent(self.Header.compressed_size, self.Header.original_size),
+            self.Header.original_crc,
+            methods[self.Header.compression_method - 1]))
 
     @staticmethod
     def RatioInPercent(compressed: int, original: int) -> int:
@@ -406,24 +423,24 @@ class CarMan:
         if not file_name:
             return 0
 
-        self.CurrentHeader.file_name = file_name.decode('ascii')
+        self.Header.file_name = file_name.decode('ascii')
         header_crc = self.CalculateBlockCRC32(len(file_name) + 1, self.CRC_MASK, file_name + b'\x00')
 
         header_data = self.InputCarFile.read(17)
         if len(header_data) != 17:
             return 0
 
-        self.CurrentHeader.compression_method = header_data[0]
-        self.CurrentHeader.original_size = struct.unpack("<I", header_data[1:5])[0]
-        self.CurrentHeader.compressed_size = struct.unpack("<I", header_data[5:9])[0]
-        self.CurrentHeader.original_crc = struct.unpack("<I", header_data[9:13])[0]
-        self.CurrentHeader.header_crc = struct.unpack("<I", header_data[13:17])[0]
+        self.Header.compression_method = header_data[0]
+        self.Header.original_size = struct.unpack("<I", header_data[1:5])[0]
+        self.Header.compressed_size = struct.unpack("<I", header_data[5:9])[0]
+        self.Header.original_crc = struct.unpack("<I", header_data[9:13])[0]
+        self.Header.header_crc = struct.unpack("<I", header_data[13:17])[0]
 
         header_crc = self.CalculateBlockCRC32(13, header_crc, header_data[:13])
         header_crc ^= self.CRC_MASK
 
-        if self.CurrentHeader.header_crc != header_crc:
-            self.FatalError("Header checksum error for file {}", self.CurrentHeader.file_name)
+        if self.Header.header_crc != header_crc:
+            self.FatalError("Header checksum error for file {}", self.Header.file_name)
 
         return 1
 
@@ -439,18 +456,18 @@ class CarMan:
         if not filename_bytes:
             return 0
             
-        self.CurrentHeader.FileName = filename_bytes.decode('ascii', errors='replace')
+        self.Header.FileName = filename_bytes.decode('ascii', errors='replace')
         
         # Read the rest of the header
         header_data = self.InputCarFile.read(17)
         if len(header_data) != 17:
             return 0
             
-        self.CurrentHeader.CompressionMethod = header_data[0]
-        self.CurrentHeader.OriginalSize = int.from_bytes(header_data[1:5], 'little')
-        self.CurrentHeader.CompressedSize = int.from_bytes(header_data[5:9], 'little')
-        self.CurrentHeader.OriginalCrc = int.from_bytes(header_data[9:13], 'little')
-        self.CurrentHeader.HeaderCrc = int.from_bytes(header_data[13:17], 'little')
+        self.Header.CompressionMethod = header_data[0]
+        self.Header.OriginalSize = int.from_bytes(header_data[1:5], 'little')
+        self.Header.CompressedSize = int.from_bytes(header_data[5:9], 'little')
+        self.Header.OriginalCrc = int.from_bytes(header_data[9:13], 'little')
+        self.Header.HeaderCrc = int.from_bytes(header_data[13:17], 'little')
         
         return 1
 
@@ -458,20 +475,20 @@ class CarMan:
         if self.OutputCarFile is None:
             return
 
-        file_name_bytes = self.CurrentHeader.file_name.encode('ascii') + b'\x00'
+        file_name_bytes = self.Header.file_name.encode('ascii') + b'\x00'
         self.OutputCarFile.write(file_name_bytes)
-        self.CurrentHeader.header_crc = self.CalculateBlockCRC32(len(file_name_bytes), self.CRC_MASK, file_name_bytes)
+        self.Header.header_crc = self.CalculateBlockCRC32(len(file_name_bytes), self.CRC_MASK, file_name_bytes)
 
         header_data = bytearray(17)
-        header_data[0] = self.CurrentHeader.compression_method
-        header_data[1:5] = struct.pack("<I", self.CurrentHeader.original_size)
-        header_data[5:9] = struct.pack("<I", self.CurrentHeader.compressed_size)
-        header_data[9:13] = struct.pack("<I", self.CurrentHeader.original_crc)
+        header_data[0] = self.Header.compression_method
+        header_data[1:5] = struct.pack("<I", self.Header.original_size)
+        header_data[5:9] = struct.pack("<I", self.Header.compressed_size)
+        header_data[9:13] = struct.pack("<I", self.Header.original_crc)
 
-        self.CurrentHeader.header_crc = self.CalculateBlockCRC32(13, self.CurrentHeader.header_crc, header_data[:13])
-        self.CurrentHeader.header_crc ^= self.CRC_MASK
+        self.Header.header_crc = self.CalculateBlockCRC32(13, self.Header.header_crc, header_data[:13])
+        self.Header.header_crc ^= self.CRC_MASK
 
-        header_data[13:17] = struct.pack("<I", self.CurrentHeader.header_crc)
+        header_data[13:17] = struct.pack("<I", self.Header.header_crc)
         self.OutputCarFile.write(header_data)
 
     def WriteEndOfCarHeader(self):
@@ -479,18 +496,18 @@ class CarMan:
             self.OutputCarFile.write(b'\x00')
 
     def Insert(self, input_text_file: BinaryIO, operation: str):
-        print(f"{operation} {self.CurrentHeader.file_name:<20}", end="", file=sys.stderr)
+        print(f"{operation} {self.Header.file_name:<20}", end="", file=sys.stderr)
 
         saved_position_of_header = self.OutputCarFile.tell()
-        self.CurrentHeader.compression_method = 2
+        self.Header.compression_method = 2
         self.WriteFileHeader()
 
         saved_position_of_file = self.OutputCarFile.tell()
-        self.CurrentHeader.original_size = os.fstat(input_text_file.fileno()).st_size
+        self.Header.original_size = os.fstat(input_text_file.fileno()).st_size
         input_text_file.seek(0)
 
         if not self.LZSSCompress(input_text_file):
-            self.CurrentHeader.compression_method = 1
+            self.Header.compression_method = 1
             self.OutputCarFile.seek(saved_position_of_file)
             input_text_file.seek(0)
             self.Store(input_text_file)
@@ -499,10 +516,10 @@ class CarMan:
         self.WriteFileHeader()
         self.OutputCarFile.seek(0, os.SEEK_END)
 
-        print(f" {self.RatioInPercent(self.CurrentHeader.compressed_size, self.CurrentHeader.original_size)}%")
+        print(f" {self.RatioInPercent(self.Header.compressed_size, self.Header.original_size)}%")
 
     def Extract(self, destination: Optional[BinaryIO]):
-        print(f"{self.CurrentHeader.file_name:<20} ", end="", file=sys.stderr)
+        print(f"{self.Header.file_name:<20} ", end="", file=sys.stderr)
         error = False
 
         output_text_file = destination
@@ -510,28 +527,28 @@ class CarMan:
 
         try:
             if destination is None:
-                output_text_file = open(self.CurrentHeader.file_name, "wb")
+                output_text_file = open(self.Header.file_name, "wb")
                 should_close = True
 
             crc = 0
-            if self.CurrentHeader.compression_method == 1:
+            if self.Header.compression_method == 1:
                 crc = self.Unstore(output_text_file)
-            elif self.CurrentHeader.compression_method == 2:
+            elif self.Header.compression_method == 2:
                 crc = self.LZSSExpand(output_text_file)
             else:
-                print(f"Unknown method: {self.CurrentHeader.compression_method}", end="", file=sys.stderr)
+                print(f"Unknown method: {self.Header.compression_method}", end="", file=sys.stderr)
                 self.SkipOverFileFromInputCar()
                 error = True
-                crc = self.CurrentHeader.original_crc
+                crc = self.Header.original_crc
 
-            if crc != self.CurrentHeader.original_crc:
+            if crc != self.Header.original_crc:
                 print("CRC error reading data", end="", file=sys.stderr)
                 error = True
 
             if not error:
                 print(" OK", end="", file=sys.stderr)
         except:
-            print(f"Can't open {self.CurrentHeader.file_name}", end="", file=sys.stderr)
+            print(f"Can't open {self.Header.file_name}", end="", file=sys.stderr)
             print("Not extracted", end="", file=sys.stderr)
             self.SkipOverFileFromInputCar()
         finally:
@@ -541,13 +558,13 @@ class CarMan:
 
                 if error:
                     try:
-                        os.remove(self.CurrentHeader.file_name)
+                        os.remove(self.Header.file_name)
                     except:
                         pass
 
     def Store(self, input_text_file: BinaryIO) -> bool:
         pacifier = 0
-        self.CurrentHeader.original_crc = self.CRC_MASK
+        self.Header.original_crc = self.CRC_MASK
         buffer_size = 256
 
         while True:
@@ -556,20 +573,20 @@ class CarMan:
                 break
 
             self.OutputCarFile.write(buffer)
-            self.CurrentHeader.original_crc = self.CalculateBlockCRC32(len(buffer), self.CurrentHeader.original_crc, buffer)
+            self.Header.original_crc = self.CalculateBlockCRC32(len(buffer), self.Header.original_crc, buffer)
 
             pacifier += 1
             if pacifier % 15 == 0:
                 print('.', end="", file=sys.stderr)
 
-        self.CurrentHeader.compressed_size = self.CurrentHeader.original_size
-        self.CurrentHeader.original_crc ^= self.CRC_MASK
+        self.Header.compressed_size = self.Header.original_size
+        self.Header.original_crc ^= self.CRC_MASK
         return True
 
     def Unstore(self, destination: BinaryIO) -> int:
         crc = self.CRC_MASK
         pacifier = 0
-        remaining = self.CurrentHeader.original_size
+        remaining = self.Header.original_size
         buffer_size = 256
 
         while remaining > 0:
@@ -640,37 +657,45 @@ class CarMan:
             self.DeleteString(replacement)
             self.ReplaceNode(p, replacement)
 
-    def AddString(self, new_node: int) -> Tuple[int, int]:
+    def AddString(self, new_node: int) -> int:
         i = 0
         test_node = self.tree[self.TREE_ROOT].larger_child
         match_length = 0
         match_position = 0
         delta = 0
 
+        if new_node == self.END_OF_STREAM:
+            return 0
         while True:
-            for i in range(self.LOOK_AHEAD_SIZE):
-                delta = self.window[(new_node + i) % self.WINDOW_SIZE] - self.window[(test_node + i) % self.WINDOW_SIZE]
+            #for i in range(self.LOOK_AHEAD_SIZE):
+            while i < self.LOOK_AHEAD_SIZE:
+                indexNew  = self.window[self.ModWindow(new_node + i)]
+                indexTest  = self.window[self.ModWindow(test_node + i)]
+                delta = self.window[indexNew] - self.window[indexTest];
+                #delta = self.window[self.ModWindow(new_node + i) % self.WINDOW_SIZE] - self.window[self.ModWindow(test_node + i) % self.WINDOW_SIZE]
                 if delta != 0:
                     break
+                i += 1
 
             if i >= match_length:
                 match_length = i
                 match_position = test_node
                 if match_length >= self.LOOK_AHEAD_SIZE:
                     self.ReplaceNode(test_node, new_node)
-                    return match_length, match_position
+                    return match_length #, match_position
 
-            child = self.tree[test_node].larger_child if delta >= 0 else self.tree[test_node].smaller_child
+            #child = self.tree[test_node].larger_child if delta >= 0 else self.tree[test_node].smaller_child
+            if delta >= 0:
+                child = self.tree[test_node].larger_child = new_node
+            else:
+                child = self.tree[test_node].smaller_child = new_node
 
             if child == self.UNUSED:
-                if delta >= 0:
-                    self.tree[test_node].larger_child = new_node
-                else:
-                    self.tree[test_node].smaller_child = new_node
+                child = new_node
                 self.tree[new_node].parent = test_node
                 self.tree[new_node].larger_child = self.UNUSED
                 self.tree[new_node].smaller_child = self.UNUSED
-                return match_length, match_position
+                return match_length #, match_position
 
             test_node = child
 
@@ -683,8 +708,8 @@ class CarMan:
         if self.bufferOffset == 1:
             return 1
 
-        self.CurrentHeader.compressed_size += self.bufferOffset
-        if self.CurrentHeader.compressed_size >= self.CurrentHeader.original_size:
+        self.Header.compressed_size += self.bufferOffset
+        if self.Header.compressed_size >= self.Header.original_size:
             return 0
 
         self.OutputCarFile.write(self.dataBuffer[:self.bufferOffset])
@@ -726,9 +751,10 @@ class CarMan:
         replace_count = 0
         match_length = 0
         match_position = 0
+        c: int = 0
 
-        self.CurrentHeader.compressed_size = 0
-        self.CurrentHeader.original_crc = self.CRC_MASK
+        self.Header.compressed_size = 0
+        self.Header.original_crc = self.CRC_MASK
         self.InitOutputBuffer()
 
         # Initialize window
@@ -738,7 +764,8 @@ class CarMan:
                 break
 
             self.window[current_position + i] = c[0]
-            self.CurrentHeader.original_crc = self.UpdateCharacterCRC32(self.CurrentHeader.original_crc, c[0])
+            #print(f"c {c}")
+            self.Header.original_crc = self.UpdateCharacterCRC32(self.Header.original_crc, c[0])
 
         look_ahead_bytes = i
         self.InitTree(current_position)
@@ -756,24 +783,30 @@ class CarMan:
                     return 0
                 replace_count = match_length
 
-            for _ in range(replace_count):
-                self.DeleteString((current_position + self.LOOK_AHEAD_SIZE) % self.WINDOW_SIZE)
+            for i in range(replace_count):
+                #self.DeleteString((current_position + self.LOOK_AHEAD_SIZE) % self.WINDOW_SIZE)
+                self.DeleteString(self.ModWindow(current_position + self.LOOK_AHEAD_SIZE))
 
                 c = input_text_file.read(1)
-                if not c:
+                #if not c:
+                if c == '':  # EOF reached
                     look_ahead_bytes -= 1
                 else:
-                    self.CurrentHeader.original_crc = self.UpdateCharacterCRC32(self.CurrentHeader.original_crc, c[0])
-                    self.window[(current_position + self.LOOK_AHEAD_SIZE) % self.WINDOW_SIZE] = c[0]
+                    if len(c) > 0:
+                      print(f"c {c}")
+                      self.Header.original_crc = self.UpdateCharacterCRC32(self.Header.original_crc, c[0])
+                      self.window[self.ModWindow(current_position + self.LOOK_AHEAD_SIZE)] = c[0]
+                    #self.window[(current_position + self.LOOK_AHEAD_SIZE) % self.WINDOW_SIZE] = c[0]
 
-                current_position = (current_position + 1) % self.WINDOW_SIZE
+                #current_position = (current_position + 1) % self.WINDOW_SIZE
+                current_position = self.ModWindow(current_position + 1)
                 if current_position == 0:
-                    print('.', end="", file=sys.stderr)
+                    print('.', end="") #, file=sys.stderr)
 
                 if look_ahead_bytes > 0:
-                    match_length, match_position = self.AddString(current_position)
+                    match_length = self.AddString(current_position)
 
-        self.CurrentHeader.original_crc ^= self.CRC_MASK
+        self.Header.original_crc ^= self.CRC_MASK
         return self.FlushOutputBuffer()
 
     def LZSSExpand(self, output: BinaryIO) -> int:
@@ -783,7 +816,7 @@ class CarMan:
 
         self.InitInputBuffer()
 
-        while output_count < self.CurrentHeader.original_size:
+        while output_count < self.Header.original_size:
             if self.InputBit():
                 c = ord(self.InputCarFile.read(1))
                 output.write(bytes([c]))
