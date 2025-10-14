@@ -3,7 +3,7 @@ import sys
 from io import FileIO, SEEK_SET, SEEK_CUR
 
 
-class Compressor:
+class CompressorBitio:
     PACIFIER_COUNT = 2047
 
     class BitFile:
@@ -18,12 +18,12 @@ class Compressor:
             self._bit_count: int = 0
 
         @staticmethod
-        def open_output_bit_file(name: str) -> 'Compressor.BitFile':
-            return Compressor.BitFile(name, False)
+        def open_output_bit_file(name: str) -> 'CompressorBitio.BitFile':
+            return CompressorBitio.BitFile(name, False)
 
         @staticmethod
-        def open_input_bit_file(name: str) -> 'Compressor.BitFile':
-            return Compressor.BitFile(name, True)
+        def open_input_bit_file(name: str) -> 'CompressorBitio.BitFile':
+            return CompressorBitio.BitFile(name, True)
 
         def close_bit_file(self):
             if not self.is_input and self.mask != 0x80:
@@ -41,7 +41,7 @@ class Compressor:
                 try:
                     self.file_stream.write(bytes([self.rack]))
                     self.pacifier_counter += 1
-                    if (self.pacifier_counter & Compressor.PACIFIER_COUNT) == 0:
+                    if (self.pacifier_counter & CompressorBitio.PACIFIER_COUNT) == 0:
                         sys.stdout.write(".")
                         sys.stdout.flush()
                 except IOError as e:
@@ -59,7 +59,7 @@ class Compressor:
                     try:
                         self.file_stream.write(bytes([self.rack]))
                         self.pacifier_counter += 1
-                        if (self.pacifier_counter & Compressor.PACIFIER_COUNT) == 0:
+                        if (self.pacifier_counter & CompressorBitio.PACIFIER_COUNT) == 0:
                             sys.stdout.write(".")
                             sys.stdout.flush()
                     except IOError as e:
@@ -75,7 +75,7 @@ class Compressor:
                     raise Exception("Fatal error in InputBit! End of file reached.")
                 self.rack = ord(read)
                 self.pacifier_counter += 1
-                if (self.pacifier_counter & Compressor.PACIFIER_COUNT) == 0:
+                if (self.pacifier_counter & CompressorBitio.PACIFIER_COUNT) == 0:
                     sys.stdout.write(".")
                     sys.stdout.flush()
             value = self.rack & self.mask
@@ -110,7 +110,7 @@ class Compressor:
                         raise Exception("Fatal error in InputBit! End of file reached.")
                     self.rack = ord(read)
                     self.pacifier_counter += 1
-                    if (self.pacifier_counter & Compressor.PACIFIER_COUNT) == 0:
+                    if (self.pacifier_counter & CompressorBitio.PACIFIER_COUNT) == 0:
                         sys.stdout.write(".")
                         sys.stdout.flush()
                 if (self.rack & self.mask) != 0:

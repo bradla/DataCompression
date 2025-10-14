@@ -1,16 +1,13 @@
 # Bradford Arrington 2025
 import sys
 import os
-from lzw12 import Compressor as Compressor
-from bitio import Compressor as CompressorBitio
+from bitio import CompressorBitio # as CompressorBitio
 import time
 import tracemalloc
 import psutil
 import os
 
 bitio = CompressorBitio()
-compdecomp = Compressor()
-
 _printed_header = False
 
 #class Program:
@@ -78,17 +75,17 @@ if __name__ == '__main__':
          extension = short_name.rfind('.')
          if extension != -1:
               short_name = short_name[:extension]
-         print(f"\nUsage:  {short_name} {compdecomp.USAGE}")
+         print(f"\nUsage:  {short_name} {USAGE}")
          sys.exit(0)
 
     remaining_args = arguments[3:]
     try:
           output = track_performance("OpenBitFile", bitio.BitFile.open_output_bit_file,arguments[2])
           with open(arguments[1], 'rb') as input_file:
-            track_performance("CompressFile", compdecomp.compress_file, input_file, output, len(remaining_args), remaining_args)
+            track_performance("CompressFile", compress_file, input_file, output, len(remaining_args), remaining_args)
           track_performance("CloseBitFile", output.close_bit_file)
           print(f"\nCompressing {arguments[1]} to {arguments[2]}")
-          print(f"Using {compdecomp.COMPRESSION_NAME}\n")
+          print(f"Using {COMPRESSION_NAME}\n")
           print_ratios(arguments[1], arguments[2])
     except FileNotFoundError:
           print(f"Error: Input file '{arguments[1]}' not found.")
