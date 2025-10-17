@@ -193,3 +193,6 @@ class Compressor_lzw15v:
                     self.next_code += 1
                 
                 old_code = new_code
+        while argc > 0:
+            argc -= 1
+            print(f"Unknown argument: {argv[len(argv) - argc - 1]}")
