@@ -120,23 +120,3 @@ class CompressorBitio:
                 if self.mask == 0:
                     self.mask = 0x80
             return return_value
-
-#if __name__ == '__main__':
-    # Example Usage (similar to the Go example you provided earlier)
-    #try:
-    #    output_file = Compressor.BitFile.open_output_bit_file("output.bit")
-    #    output_file.output_bits(0b10110011, 8)
-    #    output_file.output_bit(1)
-    #    output_file.close_bit_file()
-
-    #    input_file = Compressor.BitFile.open_input_bit_file("output.bit")
-    #    read_bits = input_file.input_bits(8)
-    #    print(f"\nRead bits: {bin(read_bits)}")
-    #    read_bit = input_file.input_bit()
-    #    print(f"Read bit: {read_bit}")
-    #    input_file.close_bit_file()
-
-    #except Exception as e:
-    #    print(f"An error occurred: {e}")
-    #except EOFError:
-    #    print("End of stream reached unexpectedly.")

@@ -149,32 +149,3 @@ class Compressor:
         while argc > 0:
             argc -= 1
             print(f"Unknown argument: {argv[len(argv) - argc - 1]}")
-
-#if __name__ == '__main__':
-#    if len(sys.argv) != 3:
-#        print(f"Usage: python {sys.argv[0]} <in-file> <out-file>")
-#        sys.exit(1)
-
-#    in_file_name = sys.argv[1]
-#    out_file_name = sys.argv[2]
-
-#    try:
-#        with open(in_file_name, 'rb') as infile, Compressor.BitFile.open_output_bit_file(out_file_name) as outfile:
-#            compressor = Compressor()
-#            compressor.compress_file(infile, outfile, 0, [])  # argc and argv not really used here for direct conversion
-#        print(f"Compression successful. Output written to {out_file_name}")
-
-#        compressed_file_name = out_file_name + ".compressed"
-#        with open(out_file_name, 'rb') as compressed_infile, open(compressed_file_name, 'wb') as decompressed_outfile:
-#            compressed_bitfile = Compressor.BitFile(out_file_name, True)
-#            decompressor = Compressor()
-#            decompressor.expand_file(compressed_bitfile, decompressed_outfile, 0, [])
-#            compressed_bitfile.close_bit_file()
-#        print(f"Decompression successful. Output written to {compressed_file_name}")
-
-#    except FileNotFoundError:
-#        print(f"Error: Input file '{in_file_name}' not found.")
-#        sys.exit(1)
-#    except Exception as e:
-#        print(f"An error occurred: {e}")
-#        sys.exit(1)

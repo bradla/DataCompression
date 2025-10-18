@@ -1,228 +1,268 @@
 # Bradford Arrington 2025
 
 from bitio import CompressorBitio # as CompressorBitio
+from io import FileIO, SEEK_SET, SEEK_CUR
+from typing import BinaryIO, List
+import sys
 
-INDEX_BIT_COUNT = 12
-LENGTH_BIT_COUNT = 4
-WINDOW_SIZE = (1 << INDEX_BIT_COUNT)
-RAW_LOOK_AHEAD_SIZE = (1 << LENGTH_BIT_COUNT)
-BREAK_EVEN = ((1 + INDEX_BIT_COUNT + LENGTH_BIT_COUNT) // 9)
-LOOK_AHEAD_SIZE = (RAW_LOOK_AHEAD_SIZE + BREAK_EVEN)
-TREE_ROOT = WINDOW_SIZE
-END_OF_STREAM = 0
-UNUSED = 0
+class LZSS:
+    COMPRESSION_NAME = "LZSS Encoder"
+    USAGE = "in-file out-file\n\n"
+      
+    INDEX_BIT_COUNT = 12
+    LENGTH_BIT_COUNT = 4
+    RAW_LOOK_AHEAD_SIZE = (1 << LENGTH_BIT_COUNT)
+    BREAK_EVEN = ((1 + INDEX_BIT_COUNT + LENGTH_BIT_COUNT) // 9)
+    LOOK_AHEAD_SIZE = (RAW_LOOK_AHEAD_SIZE + BREAK_EVEN)
+    END_OF_STREAM = 0
 
-def MOD_WINDOW(a):
-    """Perform arithmetic on tree indices"""
-    return a & (WINDOW_SIZE - 1)
+    WINDOW_SIZE = (1 << INDEX_BIT_COUNT)
+    TREE_ROOT = WINDOW_SIZE
+    UNUSED = 0
 
-CompressionName = "LZSS Encoder"
-Usage = "in-file out-file\n\n"
-window = [0] * WINDOW_SIZE
+    class TreeNode:
+            """Represents a node in the binary tree"""
+            __slots__ = ['parent', 'smaller_child', 'larger_child']
+            def __init__(self):
+                self.parent = 0  # Use 0 instead of UNUSED during initialization
+                self.smaller_child = 0
+                self.larger_child = 0
 
-class TreeNode:
-    """Represents a node in the binary tree"""
-    __slots__ = ['parent', 'smaller_child', 'larger_child']
-    
     def __init__(self):
-        self.parent = UNUSED
-        self.smaller_child = UNUSED
-        self.larger_child = UNUSED
+        #window = [0] * WINDOW_SIZE
+        # Initialize tree with WINDOW_SIZE + 1 nodes
+        #self.tree = [TreeNode() for _ in range(WINDOW_SIZE + 1)]
+                # Data structures
+        self.window = [0] * self.WINDOW_SIZE
+        self.tree = [self.TreeNode() for _ in range(self.WINDOW_SIZE + 1)]
 
-# Initialize tree with WINDOW_SIZE + 1 nodes
-tree = [TreeNode() for _ in range(WINDOW_SIZE + 1)]
+    def debug_window_content(self, position, length=10):
+        """Debug method to check window content types"""
+        print(f"Window content around position {position}:")
+        for i in range(max(0, position-5), min(len(self.window), position+5)):
+            val = self.window[i]
+            print(f"  window[{i}] = {val} (type: {type(val)})")
+
+    def MOD_WINDOW(self,a):
+        """Perform arithmetic on tree indices"""
+        return a & (self.WINDOW_SIZE - 1)
+
+    def InitTree(self,r):
+        self.tree[self.TREE_ROOT].larger_child = r
+        self.tree[r].parent = self.TREE_ROOT
+        self.tree[r].larger_child = self.UNUSED
+        self.tree[r].smaller_child = self.UNUSED
 
 
-def InitTree(r):
-    tree[TREE_ROOT].larger_child = r
-    tree[r].parent = TREE_ROOT
-    tree[r].larger_child = UNUSED
-    tree[r].smaller_child = UNUSED
+    def ContractNode(self, old_node, new_node):
+
+        self.tree[new_node].parent = self.tree[old_node].parent
+        parent = self.tree[old_node].parent
+        if self.tree[parent].larger_child == old_node:
+            self.tree[parent].larger_child = new_node
+        else:
+            self.tree[parent].smaller_child = new_node
+        self.tree[old_node].parent = self.UNUSED
 
 
-def ContractNode(old_node, new_node):
+    def ReplaceNode(self, old_node, new_node):
 
-    tree[new_node].parent = tree[old_node].parent
-    parent = tree[old_node].parent
-    if tree[parent].larger_child == old_node:
-        tree[parent].larger_child = new_node
-    else:
-        tree[parent].smaller_child = new_node
-    tree[old_node].parent = UNUSED
-
-
-def ReplaceNode(old_node, new_node):
-
-    parent = tree[old_node].parent
-    if tree[parent].smaller_child == old_node:
-        tree[parent].smaller_child = new_node
-    else:
-        tree[parent].larger_child = new_node
+        parent = self.tree[old_node].parent
+        if self.tree[parent].smaller_child == old_node:
+            self.tree[parent].smaller_child = new_node
+        else:
+            self.tree[parent].larger_child = new_node
     
-    # Copy all attributes from old_node to new_node
-    tree[new_node].parent = tree[old_node].parent
-    tree[new_node].smaller_child = tree[old_node].smaller_child
-    tree[new_node].larger_child = tree[old_node].larger_child
+        # Copy all attributes from old_node to new_node
+        self.tree[new_node].parent = self.tree[old_node].parent
+        self.tree[new_node].smaller_child = self.tree[old_node].smaller_child
+        self.tree[new_node].larger_child = self.tree[old_node].larger_child
     
-    # Update parent references of children
-    if tree[new_node].smaller_child != UNUSED:
-        tree[tree[new_node].smaller_child].parent = new_node
-    if tree[new_node].larger_child != UNUSED:
-        tree[tree[new_node].larger_child].parent = new_node
+        # Update parent references of children
+        if self.tree[new_node].smaller_child != self.UNUSED:
+            self.tree[self.tree[new_node].smaller_child].parent = new_node
+        if self.tree[new_node].larger_child != self.UNUSED:
+            self.tree[self.tree[new_node].larger_child].parent = new_node
     
-    tree[old_node].parent = UNUSED
+        self.tree[old_node].parent = self.UNUSED
 
 
-def FindNextNode(node):
+    def FindNextNode(self, node):
 
-    next_node = tree[node].smaller_child
-    while tree[next_node].larger_child != UNUSED:
-        next_node = tree[next_node].larger_child
-    return next_node
+        next_node = self.tree[node].smaller_child
+        while self.tree[next_node].larger_child != self.UNUSED:
+            next_node = self.tree[next_node].larger_child
+        return next_node
 
 
-def DeleteString(p):
+    def DeleteString(self, p):
 
-    if tree[p].parent == UNUSED:
-        return
+        if self.tree[p].parent == self.UNUSED:
+            return
     
-    if tree[p].larger_child == UNUSED:
-        ContractNode(p, tree[p].smaller_child)
-    elif tree[p].smaller_child == UNUSED:
-        ContractNode(p, tree[p].larger_child)
-    else:
-        replacement = FindNextNode(p)
-        DeleteString(replacement)
-        ReplaceNode(p, replacement)
+        if self.tree[p].larger_child == self.UNUSED:
+            self.ContractNode(p, self.tree[p].smaller_child)
+        elif self.tree[p].smaller_child == self.UNUSED:
+            self.ContractNode(p, self.tree[p].larger_child)
+        else:
+            replacement = self.FindNextNode(p)
+            self.DeleteString(replacement)
+            self.ReplaceNode(p, replacement)
 
 
-def AddString(new_node, match_position):
+    def AddString(self, new_node, match_position):
 
-    if new_node == END_OF_STREAM:
-        return 0
+        if new_node == self.END_OF_STREAM:
+            return 0
     
-    test_node = tree[TREE_ROOT].larger_child
-    match_length = 0
+        test_node = self.tree[self.TREE_ROOT].larger_child
+        match_length = 0
     
-    while True:
-        # Compare strings in the window
-        i = 0
-        while i < LOOK_AHEAD_SIZE:
-            delta = (window[MOD_WINDOW(new_node + i)] - 
-                    window[MOD_WINDOW(test_node + i)])
-            if delta != 0:
-                break
-            i += 1
+        while True:
+            # Compare strings in the window
+            i = 0
+            while i < self.LOOK_AHEAD_SIZE:
+                #delta = (self.window[self.MOD_WINDOW(new_node + i)] - self.window[self.MOD_WINDOW(test_node + i)])
+                new_node_val = self.window[self.MOD_WINDOW(new_node + i)]
+                test_node_val = self.window[self.MOD_WINDOW(test_node + i)]
+                delta = new_node_val - test_node_val
+                if delta != 0:
+                    break
+                i += 1
         
-        if i >= match_length:
-            match_length = i
-            match_position[0] = test_node  # Update the reference
-            if match_length >= LOOK_AHEAD_SIZE:
-                ReplaceNode(test_node, new_node)
+            if i >= match_length:
+                match_length = i
+                match_position[0] = test_node  # Update the reference
+                if match_length >= self.LOOK_AHEAD_SIZE:
+                    self.ReplaceNode(test_node, new_node)
+                    return match_length
+        
+            # Determine which child to follow
+            if delta >= 0:
+                child = self.tree[test_node].larger_child
+            else:
+                child = self.tree[test_node].smaller_child
+        
+            if child == self.UNUSED:
+                # Add new node to the tree
+                if delta >= 0:
+                    self.tree[test_node].larger_child = new_node
+                else:
+                    self.tree[test_node].smaller_child = new_node
+            
+                self.tree[new_node].parent = test_node
+                self.tree[new_node].larger_child = self.UNUSED
+                self.tree[new_node].smaller_child = self.UNUSED
                 return match_length
         
-        # Determine which child to follow
-        if delta >= 0:
-            child = tree[test_node].larger_child
-        else:
-            child = tree[test_node].smaller_child
-        
-        if child == UNUSED:
-            # Add new node to the tree
-            if delta >= 0:
-                tree[test_node].larger_child = new_node
+            test_node = child
+
+    def compress_file(self, input_stream: FileIO, output: 'Compressor.BitFile', argc: int, argv: list[str]):
+        i: int
+        c: int 
+        look_ahead_bytes: int = 0
+        current_position: int = 1
+        replace_count: int
+        match_length: int
+        match_position: int
+
+        current_position = 1
+        for i in range(self.LOOK_AHEAD_SIZE):
+            c = input_stream.read(1)
+            if not c: # EOF c == self.END_OF_STREAM:
+	            break
+
+            # Convert byte to integer and store in window
+            byte_value = c[0] if isinstance(c, bytes) else ord(c)
+            self.window[ current_position + i ] = byte_value
+            look_ahead_bytes = i + 1
+
+        #look_ahead_bytes = i
+        self.InitTree( current_position )
+        match_length = 0
+        match_position = [0] # Use list for pass-by-reference
+        #print(f"Starting compression with {look_ahead_bytes} bytes in look-ahead buffer")
+        #print(f"Window size: {self.WINDOW_SIZE}, Look ahead size: {self.LOOK_AHEAD_SIZE}")
+
+        while look_ahead_bytes > 0:
+            if match_length > look_ahead_bytes:
+                match_length = look_ahead_bytes
+
+            if match_length <= self.BREAK_EVEN:
+                replace_count = 1
+                output.output_bit( 1 )  # Flag for literal
+                literal_value = self.window[current_position]
+                output.output_bits( literal_value, 8 )
+                # print(f"Literal: {literal_value:02x} at pos {current_position}")
             else:
-                tree[test_node].smaller_child = new_node
-            
-            tree[new_node].parent = test_node
-            tree[new_node].larger_child = UNUSED
-            tree[new_node].smaller_child = UNUSED
-            return match_length
-        
-        test_node = child
+                output.output_bit( 0 )
+                output.output_bits( match_position[0], self.INDEX_BIT_COUNT )
+                length_value = match_length - (self.BREAK_EVEN + 1) # need ??
+                output.output_bits( length_value, self.LENGTH_BIT_COUNT )
+                replace_count = match_length
+                # print(f"Reference: pos={match_position[0]}, len={match_length}")
 
-def compress_file(self, input_bit_file: FileIO, output: 'Compressor.BitFile', argc: int, argv: list[str]):
-    i: int
-    c: int 
-    look_ahead_bytes: int
-    current_position: int
-    replace_count: int
-    match_length: int
-    match_position: int
+            for i in range(replace_count):
+                #self.DeleteString( self.MOD_WINDOW( current_position + self.LOOK_AHEAD_SIZE ) )
+                # Delete the string that will be overwritten
+                delete_pos = self.MOD_WINDOW(current_position + self.LOOK_AHEAD_SIZE)
+                if delete_pos < len(self.tree):  # Safety check
+                    self.DeleteString(delete_pos)
 
-    current_position = 1;
-    for i in range(LOOK_AHEAD_SIZE):
-        c = input_bit_file.input_bit()
-        if c == self.END_OF_STREAM:
-	        break
-        #if ( ( c = getc( input ) ) == EOF )
-        #    break
-        window[ current_position + i ] = c
+                c = input_stream.read(1)
+                if not c: # EOF #if ( ( c = getc( input ) ) == EOF )
+                    look_ahead_bytes -= 1
+                else:
+                    # Add new character to window as integer
+                    #self.window[ self.MOD_WINDOW( current_position + self.LOOK_AHEAD_SIZE ) ] = c
+                    new_pos = self.MOD_WINDOW(current_position + self.LOOK_AHEAD_SIZE)
+                    byte_value = c[0] if isinstance(c, bytes) else ord(c)
+                    self.window[new_pos] = byte_value
 
-    look_ahead_bytes = i
-    InitTree( current_position )
-    match_length = 0;
-    match_position = 0;
-    while look_ahead_bytes > 0:
-        if match_length > look_ahead_bytes:
-            match_length = look_ahead_bytes
-        if match_length <= BREAK_EVEN:
-            replace_count = 1
-            output.output_bits( output, 1 )
-            output.output_bits( output, window[ current_position ], 8 )
-        else:
-            output.output_bit( output, 0 )
-            output.output_bits( output,match_position, INDEX_BIT_COUNT )
-            output.output_bits( output, match_length - ( BREAK_EVEN + 1 ), LENGTH_BIT_COUNT )
-            replace_count = match_length
+                current_position = self.MOD_WINDOW( current_position + 1 )
+                if look_ahead_bytes > 0:
+                    match_length = self.AddString( current_position, match_position )
 
-        for i in range(replace_count):
-            DeleteString( MOD_WINDOW( current_position + LOOK_AHEAD_SIZE ) )
-            c = input_bit_file.input_bit()
-            if c == self.END_OF_STREAM:
-                #if ( ( c = getc( input ) ) == EOF )
-                look_ahead_bytes = look_ahead_bytes - 1
+        output.output_bit( 0 )
+        output.output_bits( self.END_OF_STREAM, self.INDEX_BIT_COUNT )
+
+        while argc > 0:
+                argc -= 1
+                print(f"Unknown argument: {argv[len(argv) - argc - 1]}")
+
+
+    def expand_file(self, input_stream: 'Compressor.BitFile', output_stream: FileIO, argc: int, argv: list[str]):
+        i: int
+        current_position: int
+        c: int
+        match_length: int
+        match_position: int
+        current_position = 1
+
+        # Initialize window with zeros
+        #self.window = [0] * self.WINDOW_SIZE
+        while True:
+            if input_stream.input_bit():
+            #if current_position > 0:
+                c = input_stream.input_bits(  8 )
+                output_stream.write(bytes([c]))
+                #byte_value = c[0] if isinstance(c, bytes) else ord(c)
+                self.window[ current_position ] = c
+
+                current_position = self.MOD_WINDOW( current_position + 1 )
             else:
-                window[ MOD_WINDOW( current_position + LOOK_AHEAD_SIZE ) ] = c
+                match_position = input_stream.input_bits( self.INDEX_BIT_COUNT )
+                if match_position == self.END_OF_STREAM:
+                    break
+                match_length = input_stream.input_bits( self.LENGTH_BIT_COUNT )
+                match_length += self.BREAK_EVEN
+                for i in range(match_length):
+                    c = self.window[ self.MOD_WINDOW( match_position + i ) ]
+                    output_stream.write(bytes([c]))
+                    #byte_value = c[0] if isinstance(c, bytes) else ord(c)
+                    self.window[ current_position ] = c
+                    current_position = self.MOD_WINDOW( current_position + 1 )
 
-            current_position = MOD_WINDOW( current_position + 1 )
-            if look_ahead_bytes:
-                match_length = AddString( current_position, match_position )
-
-    output.output_bit( output, 0 )
-    output.output_bits( output, END_OF_STREAM, INDEX_BIT_COUNT )
-
-    while argc > 0:
+        while argc > 0:
             argc -= 1
             print(f"Unknown argument: {argv[len(argv) - argc - 1]}")
-
-
-def expand_file(self, input_bit_file: 'Compressor.BitFile', output_stream: FileIO, argc: int, argv: list[str]):
-    i: int
-    current_position: int
-    c: int
-    match_length: int
-    match_position: int
-
-    current_position = 1;
-    while True:
-        #if ( InputBit( input ) ):
-            c = InputBits( input, 8 )
-            #putc( c, output )
-            window[ current_position ] = c
-            current_position = MOD_WINDOW( current_position + 1 );
-        else {
-            match_position = (int) InputBits( input, INDEX_BIT_COUNT );
-            if ( match_position == END_OF_STREAM )
-                break;
-            match_length = (int) InputBits( input, LENGTH_BIT_COUNT );
-            match_length += BREAK_EVEN;
-            for ( i = 0 ; i <= match_length ; i++ ) {
-                c = window[ MOD_WINDOW( match_position + i ) ];
-                putc( c, output );
-                window[ current_position ] = c
-                current_position = MOD_WINDOW( current_position + 1 )
-
-    while argc > 0:
-        argc -= 1
-        print(f"Unknown argument: {argv[len(argv) - argc - 1]}")
