@@ -232,7 +232,7 @@ class LZSS:
 
 
     def expand_file(self, input_stream: 'Compressor.BitFile', output_stream: FileIO, argc: int, argv: list[str]):
-        i: int
+        i: int = 0
         current_position: int
         c: int
         match_length: int
@@ -243,11 +243,10 @@ class LZSS:
         #self.window = [0] * self.WINDOW_SIZE
         while True:
             if input_stream.input_bit():
-            #if current_position > 0:
+
                 c = input_stream.input_bits(  8 )
                 output_stream.write(bytes([c]))
-                #byte_value = c[0] if isinstance(c, bytes) else ord(c)
-                self.window[ current_position ] = c
+                self.window[ current_position ] = ord(chr(c))
 
                 current_position = self.MOD_WINDOW( current_position + 1 )
             else:
@@ -256,11 +255,11 @@ class LZSS:
                     break
                 match_length = input_stream.input_bits( self.LENGTH_BIT_COUNT )
                 match_length += self.BREAK_EVEN
-                for i in range(match_length):
+                i = 0
+                for i in range(match_length+1):
                     c = self.window[ self.MOD_WINDOW( match_position + i ) ]
                     output_stream.write(bytes([c]))
-                    #byte_value = c[0] if isinstance(c, bytes) else ord(c)
-                    self.window[ current_position ] = c
+                    self.window[ current_position ] = ord(chr(c))
                     current_position = self.MOD_WINDOW( current_position + 1 )
 
         while argc > 0:
