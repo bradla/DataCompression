@@ -311,6 +311,7 @@ partial class Compressor
                 }
             }
         }
+		output.Close();
 
         while (argc-- > 0)
             Console.WriteLine($"Unknown argument: {argv[argv.Length - argc - 1]}");

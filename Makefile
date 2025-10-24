@@ -42,6 +42,9 @@ Lzw15v:
 Lzw12:
 	$(DOTNET) build $(LZW12C_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 	$(DOTNET) build $(LZW12E_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+Lzss:
+	$(DOTNET) build $(LZSSC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+	$(DOTNET) build $(LZSSE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 Churn:
 	$(DOTNET) build $(CHURN_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 Carman:
