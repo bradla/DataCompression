@@ -15,6 +15,11 @@ LZSSE_PROJ = csfiles/Lzss-e.csproj
 CARMAN_PROJ = csfiles/Carman.csproj
 CHURN_PROJ = csfiles/Churn.csproj
 
+DCTC_PROJ = csfiles/Dct-c.csproj
+DCTE_PROJ = csfiles/Dct-e.csproj
+
+GS_PROJ = csfiles/Gs.csproj
+
 # Common output directories (moved out of csfiles/)
 BIN_DIR = build/bin
 OBJ_DIR = build/obj
@@ -49,6 +54,11 @@ Churn:
 	$(DOTNET) build $(CHURN_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 Carman:
 	$(DOTNET) build $(CARMAN_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+Dct:
+	$(DOTNET) build $(DCTC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+	$(DOTNET) build $(DCTE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+Gs:
+	$(DOTNET) build $(GS_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 
 # -------------------------
 # Run Targets
