@@ -1,3 +1,4 @@
+#Brad Arrington 2025
 import sys
 import sdl2
 import struct
