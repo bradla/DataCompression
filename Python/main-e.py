@@ -1,6 +1,6 @@
 # Bradford Arrington 2025
-from lzw12 import Compressor as Compressor
-from bitio import Compressor as CompressorBitio
+from __init__ import USAGE, COMPRESSION_NAME, expand_file 
+from bitio import CompressorBitio
 import time
 import tracemalloc
 import psutil
@@ -11,7 +11,7 @@ from typing import List
 _printed_header = False
 
 bitio = CompressorBitio()
-compdecomp = Compressor()
+#compdecomp = Compressor()
 
 if __name__ == '__main__':
     @staticmethod           
@@ -66,9 +66,9 @@ if __name__ == '__main__':
         output_file = open(arguments[2], 'wb')
             
         print(f"\nDecompressing {arguments[1]} to {arguments[2]}")
-        print(f"Using {compdecomp.COMPRESSION_NAME}\n")
+        print(f"Using {COMPRESSION_NAME}\n")
             
-        compdecomp.expand_file(input_file, output_file, len(remaining_args), remaining_args)
+        expand_file(input_file, output_file, len(remaining_args), remaining_args)
     except FileNotFoundError:
         print(f"Error: Input file '{arguments[1]}' not found.")
         sys.exit(1)

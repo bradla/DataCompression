@@ -1,16 +1,17 @@
 # Bradford Arrington 2025
 import sys
 import os
-from bitio import CompressorBitio # as CompressorBitio
+from bitio import CompressorBitio
 import time
 import tracemalloc
 import psutil
 import os
+from __init__ import USAGE, COMPRESSION_NAME, compress_file, expand_file 
 
 bitio = CompressorBitio()
+#compdecomp = Compressor()
 _printed_header = False
 
-#class Program:
 if __name__ == '__main__':
     @staticmethod
     def file_size(file_name: str) -> int:
