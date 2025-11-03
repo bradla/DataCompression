@@ -1,13 +1,14 @@
 // Bradford Arrington 2025
-using Microsoft.VisualBasic;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 
 partial class Compressor
 {
     const int END_OF_STREAM = 256;
-
+    const int EOF = -1; // Define a custom EOF
+	
     public struct Node
     {
         public uint Count { get; set; }
@@ -22,32 +23,7 @@ partial class Compressor
     }
 
     public string CompressionName = "static order 0 model with Huffman coding";
-    //static string Usage = "infile outfile [-d]\n\nSpecifying -d will dump the modeling data\n";
     public static string Usage = "infile outfile [-d]\n\nSpecifying -d will dump the modeling data\n";
-    
-    public int Putc(int ch, FileStream fileStream)
-    {
-        try
-        {
-            fileStream.WriteByte((byte)ch); // Write the character to the file
-            return ch; // Return the written character as an integer
-        }
-        catch (Exception)
-        {
-            return -1; // Return -1 to indicate an error, similar to C's `putc`
-        }
-    }
-    public static int Getc(FileStream fileStream)
-    {
-        if (fileStream == null)
-            throw new ArgumentNullException(nameof(fileStream));
-
-        if (!fileStream.CanRead)
-            throw new IOException("File stream is not readable");
-
-        int nextChar = fileStream.ReadByte();
-        return nextChar;
-    }
 
     public static void FilePrintBinary(Stream file, uint code, int bits)
     {
@@ -61,86 +37,109 @@ partial class Compressor
             mask >>= 1;
         }
     }
-   
-    public  void CompressFile(FileStream input, BitFile output, int argc, string[] argv)
+
+    public void CompressFile(FileStream input, BitFile output, int argc, string[] argv)
     {
 
-       ulong[] counts = new ulong[256];
-       for (int i = 0; i < counts.Length; i++)
-       {
-          counts[i] = (ulong)(i + 1); // Initialize with some values
-       }
-       Node[] nodes = new Node[514];
-       Code[] codes = new Code[257];
-       CountBytes(input, counts);
-       ScaleCounts(counts, nodes);
-       OutputCounts(output, nodes);
-       int rootNode = BuildTree(nodes);
-       ConvertTreeToCode(nodes, codes, 0, 0, rootNode);
-       if (argc > 0 && argv[0] == "-d")
+        ulong[] counts = new ulong[256];
+        for (int i = 0; i < counts.Length; i++)
+        {
+            counts[i] = (uint)(i + 1); // Initialize with some values
+        }
+		//List<ulong> counts = new List<ulong>();
+		
+        Node[] nodes = new Node[514];
+        Code[] codes = new Code[257];
+        CountBytes(input, counts);
+        ScaleCounts(counts, nodes);
+        OutputCounts(output, nodes);
+        int rootNode = BuildTree(nodes);
+        ConvertTreeToCode(nodes, codes, 0, 0, rootNode);
+        if (argc > 0 && argv[0] == "-d")
             PrintModel(nodes, codes);
-       CompressData(input, output, codes);
+        CompressData(input, output, codes);
     }
 
     public void ExpandFile(BitFile input, FileStream output, int argc, string[] argv)
     {
         Node[] nodes = new Node[514];
-        //InitializeNodes(nodes);
+        int rootNode;
 
-        int rootNode = 0;
         InputCounts(input, nodes);
+		//PrintModel(nodes, null);
         rootNode = BuildTree(nodes);
+		Console.WriteLine("model 2");
+	    //PrintModel(nodes, null);
         if (argc > 0 && argv[0] == "-d")
-            PrintModel(nodes,null);
+            PrintModel(nodes, null);
         ExpandData(input, output, nodes, rootNode);
     }
 
-    public  void OutputCounts(BitFile output, Node[] nodes)
+    public void OutputCounts(BitFile output, Node[] nodes)
     {
-	    int first;
-	    int last;
-	    int next;
-	    int i;
+        int first;
+        int last= 256;
+        int next = 1;
+        int i;
 
-	    first = 0;
-	    while ( first < 255 && nodes[ first ].Count == 0 )
-          	    first++;
+        first = 0;
+        while (first < 255 && nodes[first].Count == 0) {
+          first++;
+		}
+	    first = 10;
+		Console.WriteLine(" first {0} last {1} next {2}", first.ToString(), last.ToString(), next.ToString());
+        for (; first < 256; first = next)
+        {
+          last = first + 1;
+          for (; ; )
+          {
+                for (; last < 256; last++)
+                {
+                    if (nodes[last].Count == 0) {
+                     Console.WriteLine("First");
+						break;
+					}
+                }
+                last--;
+                for (next = last + 1; next < 256; next++) { 
+					if (nodes[next].Count != 0) {
+						Console.WriteLine("Second");
+						break;
+					}
+				}
+				if (next > 255){ 
+					Console.WriteLine("break Next");
+					break;
+				}
+				if ((next - last) > 3) {
+					Console.WriteLine("break next - last");         
+					break;
+				}
+				last = next;
+          }
 
-	    for ( ; first < 256 ; first = next ) {
-	       last = first + 1;
-	       for ( ; ; ) {
-                 for ( ; last < 256 ; last++ )
-		     if ( nodes[ last ].Count == 0 )
-		       break;
-	         last--;
-	         for ( next = last + 1; next < 256 ; next++ )
-		     if ( nodes[ next ].Count != 0 )
-		        break;
-                 if ( next > 255 )
-		    break;
-	         if ( ( next - last ) > 3 )
-		    break;
-	         last = next;
-	       }
-
-	       if ( Putc( first, output.fileStream ) != first )
-	         fatal_error( "Error writing byte counts\n" );
-	       if ( Putc( last, output.fileStream ) != last )
-	         fatal_error( "Error writing byte counts\n" );
-	       for ( i = first ; i <= last ; i++ ) {
-                 if ( Putc( (int)nodes[ i ].Count, output.fileStream ) != nodes[ i ].Count )
-		    fatal_error( "Error writing byte counts\n" );
-	       }
-            }
-            if ( Putc( 0, output.fileStream ) != 0 )
-	       fatal_error( "Error writing byte counts\n" );
+		  try { output.fileStream.WriteByte((byte)first); }
+          catch { fatal_error("first: Error writing byte counts\n"); }
+		  try { output.fileStream.WriteByte((byte)last); }
+          catch { fatal_error("last: Error writing byte counts\n"); }
+		  
+		  //Console.WriteLine(" first {0} last {1}", first.ToString(), last.ToString());
+          for (i = first; i <= last; i++)
+          {
+			//Console.WriteLine(" node {0} ", nodes[i].Count.ToString());
+            try { output.fileStream.WriteByte((byte)nodes[i].Count); }
+		    catch { fatal_error("Error writing byte counts\n"); }
+          }
+        }
+		try { output.fileStream.WriteByte((byte)0); }
+		catch { fatal_error("Line 119 Error writing byte counts\n");}
     }
     public void fatal_error(string statement)
     {
         Console.WriteLine($"\n{statement}");
         Environment.Exit(1);
     }
-    const int EOF = -1; // Define a custom EOF
+
     public void InputCounts(BitFile input, Node[] nodes)
     {
         int first;
@@ -150,35 +149,70 @@ partial class Compressor
 
         for (i = 0; i < 256; i++)
             nodes[i].Count = 0;
-        if ((first = Getc(input.fileStream)) == EOF)
-            fatal_error("Error reading byte counts\n");
-        if ((last = Getc(input.fileStream)) == EOF)
-            fatal_error("Error reading byte counts\n");
+		
+        if ((first = input.fileStream.ReadByte()) == EOF)
+            fatal_error("first Error reading byte counts\n");
+
+        if ((last = input.fileStream.ReadByte()) == EOF)
+            fatal_error("last Error reading byte counts\n");
+
         for (; ; )
         {
             for (i = first; i <= last; i++)
-                if ((c = Getc(input.fileStream)) == EOF)
+                if ((c = input.fileStream.ReadByte()) == EOF) {
                     fatal_error("Error reading byte counts\n");
-                else
-                    nodes[i].Count = (uint) c;
-            if ((first = Getc(input.fileStream)) == EOF)
+				}
+                else {
+                    nodes[i].Count = (uint)c;
+				}
+            if ((first = input.fileStream.ReadByte()) == EOF)
                 fatal_error("Error reading byte counts\n");
             if (first == 0)
                 break;
-            if ((last = Getc(input.fileStream)) == EOF)
+            if ((last = input.fileStream.ReadByte()) == EOF)
                 fatal_error("Error reading byte counts\n");
         }
         nodes[END_OF_STREAM].Count = 1;
     }
-
-    public void CountBytes(FileStream input, ulong[] counts)
+    uint[] numbers = new uint[256];
+    public void CountBytes(Stream input, ulong[] counts)
     {
-        long inputMarker = input.Position;
+        long inputMarker;
         int c;
+		int cnt=0;
+
+        const int ulongSize = 8;
+        const int arrayLength = 256;
+
+		inputMarker = input.Position;
+		List<byte> allBytes = new List<byte>();
+		// ReadByte returns the next byte as an int, or -1 at EOF.
         while ((c = input.ReadByte()) != -1)
         {
-            counts[c]++;
+            allBytes.Add((byte)c);
+			counts[c]++;  //BitConverter.ToUInt64(allBytes.ToArray(), i * ulongSize);
         }
+
+        for (int i = 0; i < ulongsToProcess; i++)
+        {
+            // Convert 8 bytes into a single ulong using BitConverter.
+            // It reads 8 bytes starting from the calculated index in the byte list.
+            //counts[i] = BitConverter.ToUInt64(allBytes.ToArray(), i * ulongSize);
+        }		
+       /* while ((c = input.ReadByte()) != -1) 
+		{ 
+			Array.Resize(ref numbers, numbers.Length + 1);
+			numbers[numbers.Length - 1] = (uint)c; 
+			counts[c]++;
+			cnt++;
+		}*/
+		for (int x = 0; x < 30; x++)
+        {
+             Console.WriteLine($"Byte {allBytes[x]}: {counts[x]}");
+        }
+	    
+		Console.WriteLine("marker {0} cnt {1}", inputMarker.ToString(), cnt.ToString());
+
         input.Seek(inputMarker, SeekOrigin.Begin);
     }
 
@@ -240,12 +274,11 @@ partial class Compressor
             nodes[min_2].Count = 0;
             nodes[next_free].Child0 = min_1;
             nodes[next_free].Child1 = min_2;
-	    //Console.WriteLine($" Child0 {min_1} Child1 {min_2}");
+            //Console.WriteLine($" Child0 {min_1} Child1 {min_2}");
         }
 
         next_free--;
         nodes[next_free].SavedCount = nodes[next_free].Count;
-        //PrintModel(nodes,null);
         return next_free;
     }
 
@@ -263,7 +296,7 @@ partial class Compressor
         ConvertTreeToCode(nodes, codes, codeSoFar | 1, bits, nodes[node].Child1);
     }
 
-    public  void PrintModel(Node[] nodes, Code[] codes)
+    public void PrintModel(Node[] nodes, Code[] codes)
     {
         for (int i = 0; i < 513; i++)
         {
@@ -293,44 +326,41 @@ partial class Compressor
             Console.Write($"{c,3}");
     }
 
-    public  void CompressData(FileStream input, BitFile output, Code[] codes)
+    public void CompressData(Stream input, BitFile output, Code[] codes)
     {
         int c;
         while ((c = input.ReadByte()) != EOF)
-            output.OutputBits( (uint)codes[c].CodeValue, codes[c].CodeBits);
+            output.OutputBits((uint)codes[c].CodeValue, codes[c].CodeBits);
         output.OutputBits((uint)codes[END_OF_STREAM].CodeValue, codes[END_OF_STREAM].CodeBits);
     }
 
-    public void ExpandData(BitFile input, FileStream output, Node[] nodes, int rootNode)
+    public void ExpandData(BitFile input, Stream output, Node[] nodes, int rootNode)
     {
         int node;
 
         for (; ; )
         {
             node = rootNode;
-            //Console.WriteLine($" root_node {rootNode}");
-            //Console.WriteLine("1 child1 {0}", nodes[node].Child1.ToString());
-            //Console.WriteLine("1 child0 {0}", nodes[node].Child0.ToString());
             do
             {
-                var x = input.InputBit();
-                //Console.WriteLine(" x {0}", x.ToString());
-                if (x == 1)
-                {
+                if (input.InputBit() == 1) {
                     node = nodes[node].Child1;
-                    //Console.WriteLine(" child1 {0}", node.ToString());
-                }
-                else {
-                    node = nodes[node].Child0;
-                    //Console.WriteLine(" child0 {0}", node.ToString());
-                }
-            } while (node > END_OF_STREAM);
+				}
+                else { 
+				  node = nodes[node].Child0; 
+				}
+			}
+            while (node > END_OF_STREAM);
+			
             if (node == END_OF_STREAM)
                 break;
-            //Console.WriteLine(" node {0}",node.ToString());
-            if ((Putc(node, output)) != node)
-                fatal_error("Error trying to write expanded byte to output");
+            try { 
+				output.WriteByte((byte)node); 
+			}
+			catch {
+                fatal_error("ExpandData: Error trying to write expanded byte to output");
+			}
         }
+		output.Close();
     }
 }
-

@@ -5,6 +5,17 @@ ARITH1C_PROJ = csfiles/Arith1-c.csproj
 ARITH1E_PROJ = csfiles/Arith1-e.csproj
 ARITH1eC_PROJ = csfiles/Arith1e-c.csproj
 ARITH1eE_PROJ = csfiles/Arith1e-e.csproj
+
+COMPANDC_PROJ = csfiles/Compand-c.csproj
+COMPANDE_PROJ = csfiles/Compand-e.csproj
+SILENCEC_PROJ = csfiles/Silence-c.csproj
+SILENCEE_PROJ = csfiles/Silence-e.csproj
+
+HUFFC_PROJ = csfiles/Huff-c.csproj
+HUFFE_PROJ = csfiles/Huff-e.csproj
+AHUFFC_PROJ = csfiles/AHuff-c.csproj
+AHUFFE_PROJ = csfiles/AHuff-e.csproj
+
 LZW12C_PROJ = csfiles/Lzw12-c.csproj
 LZW12E_PROJ = csfiles/Lzw12-e.csproj
 LZW15VC_PROJ = csfiles/Lzw15v-c.csproj
@@ -32,6 +43,14 @@ all: Carman Churn Arith Lzw15v Lzw12
 # -------------------------
 # Build Targets
 # -------------------------
+Compand:
+	$(DOTNET) build $(COMPANDC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+	$(DOTNET) build $(COMPANDE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+
+Silence:
+	$(DOTNET) build $(SILENCEC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+	$(DOTNET) build $(SILENCEE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+
 Arith:
 	$(DOTNET) build $(ARITHC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 	$(DOTNET) build $(ARITHE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
@@ -41,6 +60,14 @@ Arith1:
 Arith1e:
 	$(DOTNET) build $(ARITH1eC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 	$(DOTNET) build $(ARITH1eE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+Huff:
+	$(DOTNET) build $(HUFFC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+	$(DOTNET) build $(HUFFE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+
+AHuff:
+	$(DOTNET) build $(AHUFFC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+	$(DOTNET) build $(AHUFFE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+
 Lzw15v:
 	$(DOTNET) build $(LZW15VC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 	$(DOTNET) build $(LZW15VE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
