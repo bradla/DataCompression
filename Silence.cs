@@ -100,6 +100,7 @@ partial class Compressor
                 output.WriteByte((byte)c);
             }
         }
+        output.Close();
     }
 
     private static bool SilenceRun(byte[] buffer, int index)

@@ -57,7 +57,7 @@ partial class Compressor
     	int lastValue;
     	int i;
     	int c;
-    	long count;
+    	int count=0;
         int[] expand = new int[256];
 
 	bits = (int)input.InputBits(8);
@@ -65,22 +65,21 @@ partial class Compressor
             
         steps = (1 << (bits - 1));
         lastValue = 0;
-            
-        // Build expansion table
+       
         for (i = 1; i <= steps; i++)
         {
             value = (int)(128.0 * (Math.Pow(2.0, (double)i / steps) - 1.0) + 0.5);
+
             expand[steps + i - 1] = 128 + (value + lastValue) / 2;
             expand[steps - i] = 127 - (value + lastValue) / 2;
             lastValue = value;
         }
-            
-        // Read file length and expand data
-        count = input.ReadBits(32);
-        for (i = 0; i < count; i++)
+
+        for (count = (int)input.InputBits(32); count > 0; count--)
         {
-            c = (int)input.ReadBits(bits);
+            c = (int)input.InputBits(bits);
             output.WriteByte((byte)expand[c]);
         }
+	output.Close();
     }
 }
