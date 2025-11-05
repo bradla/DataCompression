@@ -8,6 +8,8 @@ partial class Compressor
 {
     const int END_OF_STREAM = 256;
     const int EOF = -1; // Define a custom EOF
+
+	ulong[] counts = new ulong[256];
 	
     public struct Node
     {
@@ -40,13 +42,6 @@ partial class Compressor
 
     public void CompressFile(FileStream input, BitFile output, int argc, string[] argv)
     {
-
-        ulong[] counts = new ulong[256];
-        for (int i = 0; i < counts.Length; i++)
-        {
-            counts[i] = (uint)(i + 1); // Initialize with some values
-        }
-		//List<ulong> counts = new List<ulong>();
 		
         Node[] nodes = new Node[514];
         Code[] codes = new Code[257];
@@ -66,10 +61,8 @@ partial class Compressor
         int rootNode;
 
         InputCounts(input, nodes);
-		//PrintModel(nodes, null);
         rootNode = BuildTree(nodes);
-		Console.WriteLine("model 2");
-	    //PrintModel(nodes, null);
+
         if (argc > 0 && argv[0] == "-d")
             PrintModel(nodes, null);
         ExpandData(input, output, nodes, rootNode);
@@ -86,8 +79,8 @@ partial class Compressor
         while (first < 255 && nodes[first].Count == 0) {
           first++;
 		}
-	    first = 10;
-		Console.WriteLine(" first {0} last {1} next {2}", first.ToString(), last.ToString(), next.ToString());
+	    //first = 10;
+
         for (; first < 256; first = next)
         {
           last = first + 1;
@@ -96,23 +89,19 @@ partial class Compressor
                 for (; last < 256; last++)
                 {
                     if (nodes[last].Count == 0) {
-                     Console.WriteLine("First");
 						break;
 					}
                 }
                 last--;
                 for (next = last + 1; next < 256; next++) { 
 					if (nodes[next].Count != 0) {
-						Console.WriteLine("Second");
 						break;
 					}
 				}
 				if (next > 255){ 
-					Console.WriteLine("break Next");
 					break;
 				}
-				if ((next - last) > 3) {
-					Console.WriteLine("break next - last");         
+				if ((next - last) > 3) {  
 					break;
 				}
 				last = next;
@@ -123,10 +112,8 @@ partial class Compressor
 		  try { output.fileStream.WriteByte((byte)last); }
           catch { fatal_error("last: Error writing byte counts\n"); }
 		  
-		  //Console.WriteLine(" first {0} last {1}", first.ToString(), last.ToString());
           for (i = first; i <= last; i++)
           {
-			//Console.WriteLine(" node {0} ", nodes[i].Count.ToString());
             try { output.fileStream.WriteByte((byte)nodes[i].Count); }
 		    catch { fatal_error("Error writing byte counts\n"); }
           }
@@ -174,45 +161,19 @@ partial class Compressor
         }
         nodes[END_OF_STREAM].Count = 1;
     }
-    uint[] numbers = new uint[256];
+
     public void CountBytes(Stream input, ulong[] counts)
     {
         long inputMarker;
         int c;
 		int cnt=0;
 
-        const int ulongSize = 8;
-        const int arrayLength = 256;
-
 		inputMarker = input.Position;
-		List<byte> allBytes = new List<byte>();
 		// ReadByte returns the next byte as an int, or -1 at EOF.
         while ((c = input.ReadByte()) != -1)
         {
-            allBytes.Add((byte)c);
 			counts[c]++;  //BitConverter.ToUInt64(allBytes.ToArray(), i * ulongSize);
         }
-
-        for (int i = 0; i < ulongsToProcess; i++)
-        {
-            // Convert 8 bytes into a single ulong using BitConverter.
-            // It reads 8 bytes starting from the calculated index in the byte list.
-            //counts[i] = BitConverter.ToUInt64(allBytes.ToArray(), i * ulongSize);
-        }		
-       /* while ((c = input.ReadByte()) != -1) 
-		{ 
-			Array.Resize(ref numbers, numbers.Length + 1);
-			numbers[numbers.Length - 1] = (uint)c; 
-			counts[c]++;
-			cnt++;
-		}*/
-		for (int x = 0; x < 30; x++)
-        {
-             Console.WriteLine($"Byte {allBytes[x]}: {counts[x]}");
-        }
-	    
-		Console.WriteLine("marker {0} cnt {1}", inputMarker.ToString(), cnt.ToString());
-
         input.Seek(inputMarker, SeekOrigin.Begin);
     }
 
@@ -274,7 +235,6 @@ partial class Compressor
             nodes[min_2].Count = 0;
             nodes[next_free].Child0 = min_1;
             nodes[next_free].Child1 = min_2;
-            //Console.WriteLine($" Child0 {min_1} Child1 {min_2}");
         }
 
         next_free--;
