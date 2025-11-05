@@ -2,6 +2,12 @@
 import sys
 from collections import namedtuple
 
+
+END_OF_STREAM = 256
+
+COMPRESSION_NAME = "static order 0 model with Huffman coding"
+USAGE = "infile outfile [-d]\n\nSpecifying -d will dump the modeling data\n"
+
 def FilePrintBinary(file, code, bits):
     """Placeholder for printing the binary code."""
     print(f"<{code:0{bits}b}>", end="")
@@ -27,16 +33,11 @@ class Code:
         self.code = code
         self.code_bits = code_bits
 
-END_OF_STREAM = 256
-
-COMPRESSION_NAME = "static order 0 model with Huffman coding"
-USAGE = "infile outfile [-d]\n\nSpecifying -d will dump the modeling data\n"
-
 def LINE():
     return sys._getframe(1).f_lineno
 
 
-def compress_file(input_file: FileIO, output_bit_file: 'Compressor.BitFile',  argc: int, argv: list[str]):
+def compress_file(input_file: FileIO, output_bit_file: 'CompressorBitio.BitFile',  argc: int, argv: list[str]):
     counts = [0] * 256
     nodes = [Node() for _ in range(514)]
     codes = [Code() for _ in range(257)]
@@ -52,7 +53,7 @@ def compress_file(input_file: FileIO, output_bit_file: 'Compressor.BitFile',  ar
 
     compress_data(input_file, output_bit_file, codes)
 
-def expand_file(input_bit_file: 'Compressor.BitFile', output_file: FileIO, argc: int, argv: list[str]):
+def expand_file(input_bit_file: 'CompressorBitio.BitFile', output_file: FileIO, argc: int, argv: list[str]):
     nodes = [Node() for _ in range(514)]
 
     input_counts(input_bit_file, nodes)
@@ -65,56 +66,64 @@ def expand_file(input_bit_file: 'Compressor.BitFile', output_file: FileIO, argc:
 
 
 def output_counts(output_bit_file, nodes):
+    first: int
+    last: int
+    last = 256
+    next_: int
+    next_ = 1
+    #i: int
     first = 0
     # Find the first non-zero count node
     while first < 256 and nodes[first].count == 0:
         first += 1
 
     current_node = first
-    while current_node < 256:
-        last = current_node + 1
+    while first < 256:
+        last = first + 1
         # Find the end of the current block
         while True:
-            # Skip over zero-count nodes
-            while last < 256 and nodes[last].count != 0:
+            # Find end of non-zero run
+            while last < 256:
+                if nodes[last].count == 0:
+                    break
                 last += 1
-            last -= 1 # last is now the last non-zero count node
-            
-            # Find the next non-zero count node (next block start)
-            next_start = last + 1
-            while next_start < 256 and nodes[next_start].count == 0:
-                next_start += 1
-            
-            if next_start > 255:
+            last -= 1
+
+            # Find start of next non-zero run
+            next_ = last + 1
+            while next_ < 256:
+                if nodes[next_].count != 0:
+                    break
+                next_ += 1
+
+            if next_ > 255:
                 break
-            
-            if (next_start - last) > 3:
+
+            if (next_ - last) > 3:
                 break
-            
-            # Extend the current block to the next non-zero count node and repeat
-            last = next_start
-        
-        next_block_start = next_start # save for the outer loop update
+
+            last = next_
 
         try:
-            output_bit_file.putc(current_node)
-            output_bit_file.putc(last)
+            output_bit_file.file_stream.write(bytes([first]))
+            output_bit_file.file_stream.write(bytes([last]))
         except Exception:
             print("Error writing byte counts (range)", LINE())
 
-        for i in range(current_node, last + 1):
+        for i in range(first, last + 1):
             try:
                 # Assuming scaled count fits in one byte (max count is <= 255 after scaling).
-                if output_bit_file.putc(nodes[i].count) != nodes[i].count:
-                    print("Error writing byte counts (data)",  LINE())
+                if output_bit_file.file_stream.write(bytes([nodes[i].count])) != nodes[i].count:
+                    print("Error writing byte counts (data) " + nodes[i].count,  LINE())
             except Exception:
-                print("Error writing byte counts (data)",  LINE())
+                print("Error writing byte counts (data)" ,  LINE())
         
-        current_node = next_block_start # move to the start of the next block
+        first = next_
+        #current_node = next_block_start # move to the start of the next block
     
     # Write the termination marker (first == 0)
     try:
-        output_bit_file.putc(0)
+        output_bit_file.file_stream.write(bytes(0))
     except Exception:
         print("Error writing byte counts (terminator)",  LINE())
 
@@ -123,28 +132,28 @@ def input_counts(input_bit_file, nodes):
     for i in range(256):
         nodes[i].count = 0
 
-    first = input_bit_file.getc()
+    first = input_bit_file.file_stream.read(1)
     if first == -1: print("Error reading byte counts (first)",  LINE())
 
-    last = input_bit_file.getc()
+    last = input_bit_file.file_stream.read(1)
     if last == -1: print("Error reading byte counts (last)",  LINE())
 
     while True:
         # Read counts for the range [first, last]
         for i in range(first, last + 1):
-            c = input_bit_file.getc()
+            c = input_bit_file.file_stream.read(1)
             if c == -1: print("Error reading byte counts (data)",  LINE())
             nodes[i].count = c # c is the count (0-255)
 
         # Read the next 'first' marker
-        first = input_bit_file.getc()
+        first = input_bit_file.file_stream.read(1)
         if first == -1: print("Error reading byte counts (next first)",  LINE())
 
         if first == 0:
             break # Termination marker found
 
         # Read the next 'last' marker
-        last = input_bit_file.getc()
+        last = input_bit_file.file_stream.read(1)
         if last == -1: print("Error reading byte counts (next last)",  LINE())
 
     # Set EOF count
