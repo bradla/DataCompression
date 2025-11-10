@@ -2,52 +2,41 @@
 import sys
 from collections import namedtuple
 
-
 END_OF_STREAM = 256
-
 COMPRESSION_NAME = "static order 0 model with Huffman coding"
 USAGE = "infile outfile [-d]\n\nSpecifying -d will dump the modeling data\n"
-
+    
 def FilePrintBinary(file, code, bits):
     """Placeholder for printing the binary code."""
     print(f"<{code:0{bits}b}>", end="")
     pass
 
-NODE = namedtuple('NODE', ['count', 'saved_count', 'child_0', 'child_1'])
-# In C, arrays are fixed size and allocated. In Python, we'll use lists of these.
-# Since the C code accesses and modifies elements by index (e.g., nodes[i].count = ...),
-# we'll use a class with mutable attributes for the array elements instead of namedtuple,
-# as namedtuples are immutable.
-
 class Node:
-    """Represents a tree_node with mutable attributes."""
-    def __init__(self, count=0, saved_count=0, child_0=-1, child_1=-1):
-        self.count = count
-        self.saved_count = saved_count
-        self.child_0 = child_0
-        self.child_1 = child_1
+    def __init__(self):
+        self.count = 0
+        self.saved_count = 0
+        self.child_0 = 0
+        self.child_1 = 0
 
 class Code:
-    """Represents a code structure with mutable attributes."""
-    def __init__(self, code=0, code_bits=0):
-        self.code = code
-        self.code_bits = code_bits
+    def __init__(self):
+        self.code = 0
+        self.code_bits = 0
+
+counts = [0] * 256
+nodes = [Node() for _ in range(514)]
+codes = [Code() for _ in range(257)]
 
 def LINE():
     return sys._getframe(1).f_lineno
 
-
 def compress_file(input_file: FileIO, output_bit_file: 'CompressorBitio.BitFile',  argc: int, argv: list[str]):
-    counts = [0] * 256
-    nodes = [Node() for _ in range(514)]
-    codes = [Code() for _ in range(257)]
-
     count_bytes(input_file, counts)
     scale_counts(counts, nodes)
     output_counts(output_bit_file, nodes)
     root_node = build_tree(nodes)
     convert_tree_to_code(nodes, codes, 0, 0, root_node)
-
+    
     if len(argv) > 0 and argv[0] == "-d":
         print_model(nodes, codes)
 
@@ -64,7 +53,6 @@ def expand_file(input_bit_file: 'CompressorBitio.BitFile', output_file: FileIO, 
 
     expand_data(input_bit_file, output_file, nodes, root_node)
 
-
 def output_counts(output_bit_file, nodes):
     first: int
     last: int
@@ -77,10 +65,8 @@ def output_counts(output_bit_file, nodes):
     while first < 256 and nodes[first].count == 0:
         first += 1
 
-    current_node = first
     while first < 256:
         last = first + 1
-        # Find the end of the current block
         while True:
             # Find end of non-zero run
             while last < 256:
@@ -110,16 +96,14 @@ def output_counts(output_bit_file, nodes):
         except Exception:
             print("Error writing byte counts (range)", LINE())
 
-        for i in range(first, last + 1):
+        for i in range(first, last):
             try:
                 # Assuming scaled count fits in one byte (max count is <= 255 after scaling).
-                if output_bit_file.file_stream.write(bytes([nodes[i].count])) != nodes[i].count:
-                    print("Error writing byte counts (data) " + nodes[i].count,  LINE())
+                output_bit_file.file_stream.write(bytes([nodes[i].count])) # != nodes[i].count:
             except Exception:
-                print("Error writing byte counts (data)" ,  LINE())
+                print("Error writing byte counts (data)",  LINE())
         
         first = next_
-        #current_node = next_block_start # move to the start of the next block
     
     # Write the termination marker (first == 0)
     try:
@@ -132,29 +116,39 @@ def input_counts(input_bit_file, nodes):
     for i in range(256):
         nodes[i].count = 0
 
-    first = input_bit_file.file_stream.read(1)
-    if first == -1: print("Error reading byte counts (first)",  LINE())
+    value = input_bit_file.file_stream.read(1)
+    first = value[0]
+    if first == -1: 
+        print("Error reading byte counts (first)",  LINE())
 
-    last = input_bit_file.file_stream.read(1)
-    if last == -1: print("Error reading byte counts (last)",  LINE())
+    value = input_bit_file.file_stream.read(1)
+    last = value[0]
+    if last == -1: 
+        print("Error reading byte counts (last)",  LINE())
 
     while True:
-        # Read counts for the range [first, last]
         for i in range(first, last + 1):
-            c = input_bit_file.file_stream.read(1)
-            if c == -1: print("Error reading byte counts (data)",  LINE())
-            nodes[i].count = c # c is the count (0-255)
+            value = input_bit_file.file_stream.read(1)
+            c = value[0]
+            if c == -1: 
+                print("Error reading byte counts (data)",  LINE())
+            else:
+                nodes[i].count = c # c is the count (0-255)
 
         # Read the next 'first' marker
-        first = input_bit_file.file_stream.read(1)
-        if first == -1: print("Error reading byte counts (next first)",  LINE())
+        value = input_bit_file.file_stream.read(1)
+        first = value[0]
+        if first == -1: 
+            print("Error reading byte counts (next first)",  LINE())
 
         if first == 0:
             break # Termination marker found
 
         # Read the next 'last' marker
-        last = input_bit_file.file_stream.read(1)
-        if last == -1: print("Error reading byte counts (next last)",  LINE())
+        value = input_bit_file.file_stream.read(1)
+        last = value[0]
+        if last == -1: 
+            print("Error reading byte counts (next last)",  LINE())
 
     # Set EOF count
     nodes[END_OF_STREAM].count = 1
@@ -170,7 +164,7 @@ def count_bytes(input_file, counts):
             break # EOF
         c_val = c[0]
         counts[c_val] += 1
-
+    
     input_file.seek(input_marker)
 
 
@@ -186,7 +180,8 @@ def scale_counts(counts, nodes):
 
     # C code: max_count = max_count / 255; max_count = max_count + 1;
     # This ensures the scaled counts fit within a byte (0-255)
-    max_count = (max_count // 255) + 1
+    max_count = max_count // 255
+    max_count = max_count + 1
 
     for i in range(256):
         scaled_count = counts[i] // max_count
@@ -201,7 +196,6 @@ def scale_counts(counts, nodes):
 
 def build_tree(nodes):
     nodes[513].count = 0xFFFF # High value (65535)
-
     next_free = END_OF_STREAM + 1 # Start non-leaf nodes after 257 (0-256 for chars + EOF)
 
     while True:
@@ -230,7 +224,9 @@ def build_tree(nodes):
 
         # Set children
         nodes[next_free].child_0 = min_1
+        #print(f"child0_bt {min_1}")
         nodes[next_free].child_1 = min_2
+        #print(f"child1_bt {min_2}")
         
         next_free += 1
 
@@ -239,29 +235,32 @@ def build_tree(nodes):
     nodes[next_free].saved_count = nodes[next_free].count # Save root count
     return next_free # Return root node index
 
-
 def convert_tree_to_code(nodes, codes, code_so_far, bits, node):
     if node <= END_OF_STREAM: # Leaf node (character or EOF)
         codes[node].code = code_so_far
         codes[node].code_bits = bits
         return
 
-    # Go left (0 bit)
-    # C code: code_so_far <<= 1; bits++;
-    convert_tree_to_code(nodes, codes, code_so_far << 1, bits + 1,
-                         nodes[node].child_0)
-
-    # Go right (1 bit)
-    # C code: code_so_far | 1
-    convert_tree_to_code(nodes, codes, (code_so_far << 1) | 1, bits + 1,
-                         nodes[node].child_1)
-
+    code_so_far <<= 1
+    bits = bits + 1
+    #print(f"child0_ttc {nodes[node].child_0}")
+    convert_tree_to_code(nodes, codes, code_so_far, bits, nodes[node].child_0)
+    convert_tree_to_code(nodes, codes, code_so_far | 1, bits, nodes[node].child_1)
 
 def print_char(c):
     if 0x20 <= c < 127:
         print(f"'{chr(c)}'", end="")
     else:
         print(f"{c:3d}", end="")
+
+def file_print_binary(file: FileIO, code: int, bits: int):
+    mask = 1 << (bits - 1)
+    while mask != 0:
+        if code & mask:
+            file.write(b'1')
+        else:
+            file.write(b'0')
+        mask >>= 1
 
 def print_model(nodes, codes):
     for i in range(513):
@@ -270,17 +269,14 @@ def print_model(nodes, codes):
             print_char(i)
             print(f"  count={nodes[i].saved_count:3d}", end="")
             
-            # Print children indices (or char/EOF if a leaf)
             print("  child_0=", end="")
             print_char(nodes[i].child_0)
             print("  child_1=", end="")
             print_char(nodes[i].child_1)
 
-            # Print Huffman code if applicable
             if codes is not None and i <= END_OF_STREAM:
                 print("  Huffman code=", end="")
-                # FilePrintBinary is a placeholder function
-                FilePrintBinary(sys.stdout, codes[i].code, codes[i].code_bits)
+                FilePrintBinary(sys.stdout.buffer, codes[i].code, codes[i].code_bits)
             
             print() # Newline
 
