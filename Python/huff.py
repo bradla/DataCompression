@@ -23,14 +23,14 @@ class Code:
         self.code = 0
         self.code_bits = 0
 
-counts = [0] * 256
-nodes = [Node() for _ in range(514)]
-codes = [Code() for _ in range(257)]
-
 def LINE():
     return sys._getframe(1).f_lineno
 
 def compress_file(input_file: FileIO, output_bit_file: 'CompressorBitio.BitFile',  argc: int, argv: list[str]):
+    counts = [0] * 256
+    nodes = [Node() for _ in range(514)]
+    codes = [Code() for _ in range(257)]
+
     count_bytes(input_file, counts)
     scale_counts(counts, nodes)
     output_counts(output_bit_file, nodes)
@@ -59,18 +59,20 @@ def output_counts(output_bit_file, nodes):
     last = 256
     next_: int
     next_ = 1
-    #i: int
+
     first = 0
     # Find the first non-zero count node
-    while first < 256 and nodes[first].count == 0:
+    while first < 255 and nodes[first].count == 0:
         first += 1
 
+    print(f"first {first} last {last} next_ {next_}")
     while first < 256:
         last = first + 1
         while True:
             # Find end of non-zero run
             while last < 256:
                 if nodes[last].count == 0:
+                    print("First")
                     break
                 last += 1
             last -= 1
@@ -79,26 +81,36 @@ def output_counts(output_bit_file, nodes):
             next_ = last + 1
             while next_ < 256:
                 if nodes[next_].count != 0:
+                    print("Second")
                     break
                 next_ += 1
 
             if next_ > 255:
+                print("239 next 255")
                 break
 
             if (next_ - last) > 3:
+                print("243 next -last")
                 break
 
             last = next_
 
         try:
             output_bit_file.file_stream.write(bytes([first]))
+        except Exception:
+            print("Error writing byte counts (range)", LINE())
+            
+        try:
             output_bit_file.file_stream.write(bytes([last]))
         except Exception:
             print("Error writing byte counts (range)", LINE())
-
+            
+        i = first
+        print(f" first {first} last {last}")
         for i in range(first, last):
             try:
                 # Assuming scaled count fits in one byte (max count is <= 255 after scaling).
+                print(f" nodes {nodes[ i ].count}")
                 output_bit_file.file_stream.write(bytes([nodes[i].count])) # != nodes[i].count:
             except Exception:
                 print("Error writing byte counts (data)",  LINE())
@@ -165,6 +177,10 @@ def count_bytes(input_file, counts):
         c_val = c[0]
         counts[c_val] += 1
     
+    print(f"len {len(counts)}")
+    for i in range(30):
+      print(f" counts {counts[i]}")
+      
     input_file.seek(input_marker)
 
 
@@ -289,8 +305,10 @@ def compress_data(input_file, output_bit_file, codes):
         if not c:
             break # EOF
         c_val = c[0]
+        #print(chr(c[0]))
         
         # Output Huffman code for the byte
+        #print(f"{codes[c_val].code}  {codes[c_val].code_bits}")
         output_bit_file.output_bits(codes[c_val].code, codes[c_val].code_bits)
 
     output_bit_file.output_bits(codes[END_OF_STREAM].code, codes[END_OF_STREAM].code_bits)
