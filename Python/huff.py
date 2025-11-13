@@ -54,30 +54,30 @@ def expand_file(input_bit_file: 'CompressorBitio.BitFile', output_file: FileIO, 
     expand_data(input_bit_file, output_file, nodes, root_node)
 
 def output_counts(output_bit_file, nodes):
-    first: int
-    last: int
     last = 256
-    next_: int
     next_ = 1
 
     first = 0
     # Find the first non-zero count node
+
     while first < 255 and nodes[first].count == 0:
         first += 1
 
-    print(f"first {first} last {last} next_ {next_}")
+    print(f" first {first} last {last} next {next_} ")
     while first < 256:
         last = first + 1
+
         while True:
-            # Find end of non-zero run
+            # Find first zero-count node
             while last < 256:
                 if nodes[last].count == 0:
                     print("First")
                     break
                 last += 1
+
             last -= 1
 
-            # Find start of next non-zero run
+            # Find next nonzero-count node
             next_ = last + 1
             while next_ < 256:
                 if nodes[next_].count != 0:
@@ -105,9 +105,8 @@ def output_counts(output_bit_file, nodes):
         except Exception:
             print("Error writing byte counts (range)", LINE())
             
-        i = first
         print(f" first {first} last {last}")
-        for i in range(first, last):
+        for i in range(first, last + 1):
             try:
                 # Assuming scaled count fits in one byte (max count is <= 255 after scaling).
                 print(f" nodes {nodes[ i ].count}")
@@ -119,7 +118,7 @@ def output_counts(output_bit_file, nodes):
     
     # Write the termination marker (first == 0)
     try:
-        output_bit_file.file_stream.write(bytes(0))
+        output_bit_file.file_stream.write(bytes(1))
     except Exception:
         print("Error writing byte counts (terminator)",  LINE())
 
@@ -178,8 +177,8 @@ def count_bytes(input_file, counts):
         counts[c_val] += 1
     
     print(f"len {len(counts)}")
-    for i in range(30):
-      print(f" counts {counts[i]}")
+    #for i in range(30):
+    #  print(f" counts {counts[i]}")
       
     input_file.seek(input_marker)
 
