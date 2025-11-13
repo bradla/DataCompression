@@ -63,7 +63,6 @@ def output_counts(output_bit_file, nodes):
     while first < 255 and nodes[first].count == 0:
         first += 1
 
-    print(f" first {first} last {last} next {next_} ")
     while first < 256:
         last = first + 1
 
@@ -71,7 +70,6 @@ def output_counts(output_bit_file, nodes):
             # Find first zero-count node
             while last < 256:
                 if nodes[last].count == 0:
-                    print("First")
                     break
                 last += 1
 
@@ -81,16 +79,13 @@ def output_counts(output_bit_file, nodes):
             next_ = last + 1
             while next_ < 256:
                 if nodes[next_].count != 0:
-                    print("Second")
-                    break
+                     break
                 next_ += 1
 
             if next_ > 255:
-                print("239 next 255")
                 break
 
             if (next_ - last) > 3:
-                print("243 next -last")
                 break
 
             last = next_
@@ -105,11 +100,9 @@ def output_counts(output_bit_file, nodes):
         except Exception:
             print("Error writing byte counts (range)", LINE())
             
-        print(f" first {first} last {last}")
         for i in range(first, last + 1):
             try:
                 # Assuming scaled count fits in one byte (max count is <= 255 after scaling).
-                print(f" nodes {nodes[ i ].count}")
                 output_bit_file.file_stream.write(bytes([nodes[i].count])) # != nodes[i].count:
             except Exception:
                 print("Error writing byte counts (data)",  LINE())
