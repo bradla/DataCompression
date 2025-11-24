@@ -7,8 +7,9 @@ class Program
 {
     public static void Main(string[] args)
     {
+
 		using (new AdvancedPerformanceMonitor("Detail Operations"))
-		{
+		{       
 			var compressor = new Compressor();
 			string[] arguments = Environment.GetCommandLineArgs();
 			if (args.Length < 2)
@@ -30,12 +31,12 @@ class Program
 			}
 			string[] remainingArgs = new string[args.Length - 2];
 			Array.Copy(args, 2, remainingArgs, 0, remainingArgs.Length);
-			Compressor.BitFile output;
-			FileStream input;
+   		Compressor.BitFile output=null;
+		FileStream input=null;
 			using (new TimeMonitor("ReadFile"))
 			{
-				Compressor.BitFile output = Compressor.BitFile.OpenOutputBitFile(args[1]);
-				FileStream input = new FileStream(args[0], FileMode.Open, FileAccess.Read);
+				output = Compressor.BitFile.OpenOutputBitFile(args[1]);
+				input = new FileStream(args[0], FileMode.Open, FileAccess.Read);
 			}
 			Console.WriteLine($"\nCompressing {args[0]} to {args[1]}");
 			Console.WriteLine($"Using {compressor.CompressionName}\n");

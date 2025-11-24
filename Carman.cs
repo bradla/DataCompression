@@ -79,6 +79,12 @@ namespace CarManager
                     Console.WriteLine("adding: " + file);
                     using (FileStream inputTextFile = new FileStream(file, FileMode.Open, FileAccess.Read))
                     {
+                        /*using (StreamReader reader = new StreamReader(inputTextFile))
+			{
+			    string text = reader.ReadToEnd();
+			    Console.WriteLine(text);
+			}*/
+
                         string fileNameOnly = Path.GetFileName(file);
 
                         // Check for duplicates
@@ -104,7 +110,14 @@ namespace CarManager
                 }
                 catch (Exception ex)
                 {
-                    FatalError("Could not open {0} to add to CAR file {ex.Message}", file);
+                  /*if (OutputCarFile != null)
+            	  {
+                    OutputCarFile.Close();
+                    try { File.Delete(TempFileName); } catch { }
+                  }
+                  Console.WriteLine("Could not open {0} to add to CAR file {1}", file, ex.Message);
+                  Environment.Exit(1);*/
+                  FatalError("Could not open {0} to add to CAR file {ex.Message}", file);
                 }
             }
             return count;
@@ -174,17 +187,17 @@ namespace CarManager
 
                             foreach (string foundFile in Directory.GetFiles(dir, pattern))
                             {
-                                FileList.Add(foundFile.ToLower());
+                                FileList.Add(foundFile); //.ToLower());
                             }
                         }
                         catch
                         {
-                            FileList.Add(file.ToLower());
+                            FileList.Add(file); //.ToLower());
                         }
                     }
                     else
                     {
-                        FileList.Add(file.ToLower());
+                        FileList.Add(file); //.ToLower());
                     }
 
                     if (FileList.Count > 99)
@@ -356,7 +369,10 @@ namespace CarManager
         private void FatalError(string message, params object[] args)
         {
             Console.Error.WriteLine();
-            Console.Error.WriteLine(message, args);
+            Console.Error.WriteLine(message); //, args);
+            foreach (var a in args) {
+            	Console.WriteLine(a);
+            }
             Console.Error.WriteLine();
 
             if (OutputCarFile != null)
@@ -569,6 +585,7 @@ namespace CarManager
             CurrentHeader.original_crc ^= CRC_MASK;
             return FlushOutputBuffer();
         }
+        
         private void ListCarFileEntry()
         {
             string[] methods = { "Stored", "LZSS" };
@@ -1077,15 +1094,11 @@ namespace CarManager
             PackUnsignedData(4, CurrentHeader.original_size, headerData, 1);
             PackUnsignedData(4, CurrentHeader.compressed_size, headerData, 5);
             PackUnsignedData(4, CurrentHeader.original_crc, headerData, 9);
-            //headerData[0] = (byte)CurrentHeader.compression_method;
-            //BitConverter.GetBytes(CurrentHeader.original_size).CopyTo(headerData, 1);
-            //BitConverter.GetBytes(CurrentHeader.compressed_size).CopyTo(headerData, 5);
-            //BitConverter.GetBytes(CurrentHeader.original_crc).CopyTo(headerData, 9);
+
 
             CurrentHeader.header_crc = CalculateBlockCRC32(13, CurrentHeader.header_crc, headerData);
             CurrentHeader.header_crc ^= CRC_MASK;
 
-            //BitConverter.GetBytes(CurrentHeader.header_crc).CopyTo(headerData, 13);
             PackUnsignedData(4, CurrentHeader.header_crc, headerData, 13);
             OutputCarFile.Write(headerData, 0, 17);
         }
