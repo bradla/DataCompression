@@ -166,7 +166,7 @@ partial class Compressor
     {
         long inputMarker;
         int c;
-		int cnt=0;
+		//int cnt=0;
 
 		inputMarker = input.Position;
 		// ReadByte returns the next byte as an int, or -1 at EOF.
