@@ -38,7 +38,7 @@ OBJ_DIR = build/obj
 # -------------------------
 # Default target
 # -------------------------
-all: Carman Churn Arith Lzw15v Lzw12
+all: Carman Churn Arith Arith1 Arith1e Compand Silence Lzw15v Lzw12 Lzss Dct Gs Huff Ahuff
 
 # -------------------------
 # Build Targets
@@ -75,10 +75,11 @@ Lzw12:
 	$(DOTNET) build $(LZW12C_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 	$(DOTNET) build $(LZW12E_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 Lzss:
-	$(DOTNET) build $(LZSSC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
-	$(DOTNET) build $(LZSSE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+	$(DOTNET) publish $(LZSSC_PROJ) -c Release --self-contained true -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/ -o ./publish/lzss-c
+	$(DOTNET) publish $(LZSSE_PROJ) -c Release --self-contained true -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/ -o ./publish/lzss-e
+
 Churn:
-	$(DOTNET) build $(CHURN_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+	$(DOTNET) publish $(CHURN_PROJ) -c Release --self-contained true -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 Carman:
 	$(DOTNET) build $(CARMAN_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 Dct:
@@ -110,9 +111,10 @@ run-extract-debug:
 # Clean Target
 # -------------------------
 clean:
-	$(DOTNET) clean $(C_PROJ)
-	$(DOTNET) clean $(E_PROJ)
-	rm -rf $(BIN_DIR) $(OBJ_DIR)
+	rm -rf csfiles/$(BIN_DIR)
+	rm -rf csfiles/$(OBJ_DIR)
+#	$(DOTNET) clean $(C_PROJ)
+#	$(DOTNET) clean $(E_PROJ)
 
 # List available targets
 list:
@@ -123,9 +125,15 @@ list:
 	@echo "  Arith1           - Build Arith1.cs"
 	@echo "  Arith1e          - Build Arith1e.cs"
 	@echo "  Lzw12            - Build Lzw12.cs"
-	@echo "  Lzw15v           - Build Arith1.cs"
+	@echo "  Lzw15v           - Build Lzw15v.cs"
 	@echo "  Lzss             - Build Lzss.cs"
 	@echo "  Churn            - Build Churn.cs"
+	@echo "  Dct              - Build Dct.cs"
+	@echo "  Gs               - Build Gs.cs"
+	@echo "  Huff             - Build Huff.cs"
+	@echo "  Ahuff            - Build Ahuff.cs"
+	@echo "  Compand          - Build Compand.cs"
+	@echo "  Silence          - Build Silence.cs"
 	@echo "  run-carman       - Run Carman project"
 	@echo "  run-*            - Run individual programs"
 	@echo "  clean            - Clean all build artifacts"

@@ -5,6 +5,10 @@
     <TargetFramework>net10.0</TargetFramework>
         <!-- Disable automatic *.cs inclusion -->
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SkipCleanPublish>true</SkipCleanPublish>
   </PropertyGroup>
 
   <ItemGroup>
