@@ -12,7 +12,8 @@
 
 #define PACIFIER_COUNT 2047
 
-BIT_FILE *OpenOutputBitFile( char *name )
+BIT_FILE *OpenOutputBitFile( name )
+char *name;
 {
     BIT_FILE *bit_file;
 
@@ -26,7 +27,8 @@ BIT_FILE *OpenOutputBitFile( char *name )
     return( bit_file );
 }
 
-BIT_FILE *OpenInputBitFile( char *name )
+BIT_FILE *OpenInputBitFile( name )
+char *name;
 {
     BIT_FILE *bit_file;
 
@@ -40,7 +42,8 @@ BIT_FILE *OpenInputBitFile( char *name )
     return( bit_file );
 }
 
-void CloseOutputBitFile( BIT_FILE *bit_file )
+void CloseOutputBitFile( bit_file )
+BIT_FILE *bit_file;
 {
     if ( bit_file->mask != 0x80 )
         if ( putc( bit_file->rack, bit_file->file ) != bit_file->rack )
@@ -49,13 +52,16 @@ void CloseOutputBitFile( BIT_FILE *bit_file )
     free( (char *) bit_file );
 }
 
-void CloseInputBitFile( BIT_FILE *bit_file )
+void CloseInputBitFile( bit_file )
+BIT_FILE *bit_file;
 {
     fclose( bit_file->file );
     free( (char *) bit_file );
 }
 
-void OutputBit( BIT_FILE *bit_file, int bit )
+void OutputBit( bit_file, bit )
+BIT_FILE *bit_file;
+int bit;
 {
     if ( bit )
         bit_file->rack |= bit_file->mask;
@@ -71,7 +77,10 @@ void OutputBit( BIT_FILE *bit_file, int bit )
     }
 }
 
-void OutputBits( BIT_FILE *bit_file, unsigned long code, int count )
+void OutputBits( bit_file, code, count )
+BIT_FILE *bit_file;
+unsigned long code;
+int count;
 {
     unsigned long mask;
 
@@ -92,7 +101,8 @@ void OutputBits( BIT_FILE *bit_file, unsigned long code, int count )
     }
 }
 
-int InputBit( BIT_FILE *bit_file )
+int InputBit( bit_file )
+BIT_FILE *bit_file;
 {
     int value;
 
@@ -110,7 +120,9 @@ int InputBit( BIT_FILE *bit_file )
     return( value ? 1 : 0 );
 }
 
-unsigned long InputBits( BIT_FILE *bit_file, int bit_count )
+unsigned long InputBits( bit_file, bit_count )
+BIT_FILE *bit_file;
+int bit_count;
 {
     unsigned long mask;
     unsigned long return_value;
@@ -135,7 +147,10 @@ unsigned long InputBits( BIT_FILE *bit_file, int bit_count )
     return( return_value );
 }
 
-void FilePrintBinary( FILE *file, unsigned int code, int bits )
+void FilePrintBinary( file, code, bits )
+FILE *file;
+unsigned int code;
+int bits;
 {
     unsigned int mask;
 
@@ -150,3 +165,4 @@ void FilePrintBinary( FILE *file, unsigned int code, int bits )
 }
 
 /*************************** End of BITIO.C **************************/
+

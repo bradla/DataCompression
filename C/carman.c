@@ -1,24 +1,11 @@
-/************************** Start of CARMAN.C *************************
- *
- * This is the main program for the simple Compressed Archive Manager.
- * This program can be used to add, delete, extract, or list the files
- * in a CAR archive.  The code here should run under standard ANSI
- * compilers under MS-DOS (with ANSI mode selected) or K&R compilers
- * under UNIX.  The code uses an LZSS compression algorithm identical to
- * that used earlier in the book.
- */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#ifdef __STDC__
 #include <stdarg.h>
-#else
-#include <varargs.h>
-#endif
+//#include <varargs.h>
 
-#ifdef __STDC__
   /* All Borland C/C++ versions */
   #ifdef __TURBOC__
     #define MSDOS 1
@@ -38,25 +25,10 @@
     #define FIND_NEXT _dos_findnext
     #define DIR_FILE_NAME name
   #endif
-#endif
-
-/*
- * A few constants used throughout the program.
- */
 
 #define BASE_HEADER_SIZE   19
 #define CRC_MASK           0xFFFFFFFFL
 #define CRC32_POLYNOMIAL   0xEDB88320L
-
-/*
- * The only data structure used inside the CAR file is the header block.
- * Each file is preceded by a header, stored in a portable format.
- * The header is read into and out of the structure defined below.
- * The CAR file is structured as a series of header/data sequences, with
- * the EOF being denoted as a header with a file name length of 0.  Note
- * that the length of each header will vary depending on the length of
- * the file name.
- */
 
 #ifndef FILENAME_MAX
 #define FILENAME_MAX 128
@@ -71,13 +43,6 @@ typedef struct header {
     unsigned long header_crc;
 } HEADER;
 
-/*
- * Local function prototypes
- */
-
-#ifdef __STDC__
-
-int main( int argc, char *argv[] );
 void FatalError( char *message, ... );
 void BuildCRCTable( void );
 unsigned long CalculateBlockCRC32( unsigned int count,
@@ -111,45 +76,6 @@ unsigned long Unstore( FILE *destination );
 int LZSSCompress( FILE *input_text_file );
 unsigned long LZSSExpand( FILE *destination );
 
-#else
-
-int main();
-void FatalError();
-void BuildCRCTable();
-unsigned long CalculateBlockCRC32();
-unsigned long UpdateCharacterCRC32();
-int ParseArguments();
-void UsageExit();
-void OpenArchiveFiles();
-void BuildFileList();
-int ExpandAndMassageMSDOSFileNames();
-void MassageMSDOSFileName();
-int AddFileListToArchive();
-int ProcessAllFilesInInputCar();
-int SearchFileList();
-int WildCardMatch();
-void SkipOverFileFromInputCar();
-void CopyFileFromInputCar();
-void PrintListTitles();
-void ListCarFileEntry();
-int RatioInPercent();
-int ReadFileHeader();
-unsigned long UnpackUnsignedData();
-void WriteFileHeader();
-void PackUnsignedData();
-void WriteEndOfCarHeader();
-void Insert();
-void Extract();
-int Store();
-unsigned long Unstore();
-int LZSSCompress();
-unsigned long LZSSExpand();
-
-#endif
-
-/*
- * All global variables are defined here.
- */
 
 char TempFileName[ FILENAME_MAX ];   /* The output archive is first    */
 				      /* opened with a temporary name   */
@@ -173,22 +99,7 @@ unsigned long Ccitt32Table[ 256 ];    /* This array holds the CRC	*/
 				      /* table used to calculate the 32 */
 				      /* bit CRC values.                */
 
-/*
- * This is the main program for processing CAR commands.  Most of the
- * major work involved here has been delegated out to other functions.
- * This routine first parses the command line, then opens up the input
- * and possibly the output archive.  It then builds a list of files
- * to be processed by the current command.  If the command was 'A', all
- * of the files are immediately added to the output archives.  Finally,
- * the main processing loop is called.  It scans through the entire archive,
- * taking action on each file as necessary.   Once that is complete, all
- * that is left to do is optionally delete the input file, then rename the
- * output file to have the correct CAR file name.
- */
-
-int main( argc, argv )
-int argc;
-char *argv[];
+int main( int argc,  char *argv[] )
 {
     int command;
     int count;
@@ -213,14 +124,11 @@ char *argv[];
 	if ( ferror( OutputCarFile ) || fclose( OutputCarFile ) == EOF )
 	    FatalError( "Can't write" );
 
-#ifdef __STDC__
     remove( CarFileName );
     rename( TempFileName, CarFileName );
-#else
-    unlink( CarFileName );
-    link( TempFileName, CarFileName );
-    unlink( TempFileName );
-#endif
+    //unlink( CarFileName );
+    //link( TempFileName, CarFileName );
+    //unlink( TempFileName );
     }
     if ( command != 'P' )
         printf( "\n%d file%s\n", count, ( count == 1 ) ? "" : "s" );
@@ -229,57 +137,24 @@ char *argv[];
     return( 0 );
 }
 
-/*
- * FatalError provides a short way for us to exit the program when
- * something bad happens, as well as printing a diagnostic message.
- * If an output CAR file has been opened, it is deleted as well,
- * which cleans up most of the traces of our work here.  Note that
- * K&R compilers handle variable length argument lists differently
- * than ANSI compilers, so we have two different entries for the
- * routines.
- */
-
-#ifdef __STDC__
-
 void FatalError( char *fmt, ... )
 {
     va_list args;
 
     va_start( args, fmt );
-#else
 
-void FatalError( va_alist )
-va_dcl
-{
-    va_list args;
-    char *fmt;
-
-    va_start( args );
-    fmt = va_arg( args, char * );
-#endif
     putc( '\n', stderr );
     vfprintf( stderr, fmt, args );
     putc( '\n', stderr );
     va_end( args );
-    if ( OutputCarFile != NULL )
+    if ( OutputCarFile != NULL ) {
         fclose( OutputCarFile );
-#ifdef __STDC__
         remove( TempFileName );
-#else
-        unlink( TempFileName );
-#endif
+    }
     exit( 1 );
 }
 
-/*
- * This routine simply builds the coefficient table used to calculate
- * 32 bit CRC values throughout this program.  The 256 long word table
- * has to be set up once when the program starts.  Alternatively, the
- * values could be hard coded in, which would offer a miniscule improvement
- * in overall performance of the program.
- */
-
-void BuildCRCTable()
+void BuildCRCTable ()
 {
     int i;
     int j;
@@ -297,18 +172,8 @@ void BuildCRCTable()
     }
 }
 
-/*
- * This is the routine used to calculate the 32 bit CRC of a block of data.
- * This is done by processing the input buffer using the coefficient table
- * that was created when the program was initialized.  This routine takes
- * an input value as a seed, so that a running calculation of the CRC can
- * be used as blocks are read and written.
- */
 
-unsigned long CalculateBlockCRC32( count, crc, buffer )
-unsigned int count;
-unsigned long crc;
-void *buffer;
+unsigned long CalculateBlockCRC32 ( unsigned int count,  unsigned long crc,  void *buffer )
 {
     unsigned char *p = (unsigned char *) buffer;
     unsigned long temp1;
@@ -322,18 +187,8 @@ void *buffer;
     return( crc );
 }
 
-/*
- * If I/O is being done on a byte by byte basis, as is the case with the
- * LZSS code, it is easier to calculate the CRC of a byte at a time instead
- * of a block at a time.  This routine performs that function, once again
- * taking a crc value as input, so that this can be used to perform on the
- * fly calculations.  In situations where performance is critical, this
- * routine could easily be recoded as a macro.
- */
 
-unsigned long UpdateCharacterCRC32( crc, c )
-unsigned long crc;
-int c;
+unsigned long UpdateCharacterCRC32 ( unsigned long crc,  int c )
 {
     unsigned long temp1;
     unsigned long temp2;
@@ -344,24 +199,8 @@ int c;
     return( crc );
 }
 
-/*
- * When CARMAN first starts up, it calls this routine to parse the
- * command line.  We look for several things here.  If any of the
- * conditions needed to run CARMAN are not met, the routine opts for
- * the usage printout exit.  The first thing to be sure of is that
- * the command line has at least three arguments, which should be
- * the "CARMAN", a single character command, and an CAR archive name.
- * After that, we check to be sure that the command name is a valid
- * letter, and incidentally print out a short message based on it.
- * Both the Addfiles and Delete commands require that some file names
- * be listed as well, so a check is made for additional arguments when
- * each of those arguments is encountered.  Finally, the command itself
- * is returned to main(), for use later in processing the command.
- */
 
-int ParseArguments( argc, argv )
-int argc;
-char *argv[];
+int ParseArguments ( int argc,  char *argv[] )
 {
     int command;
 
@@ -399,13 +238,8 @@ char *argv[];
     return( command );
 }
 
-/*
- * UsageExit just provides a universal point of egress for those
- * times when there appears to be a problem on the command line.
- * This routine prints a short help message then exits back to the OS.
- */
 
-void UsageExit()
+void UsageExit ()
 {
     fputs( "CARMAN -- Compressed ARchive MANager\n", stderr );
     fputs( "Usage: carman command car-file [file ...]\n", stderr );
@@ -421,32 +255,8 @@ void UsageExit()
     exit( 1 );
 }
 
-/*
- * After the command line has been parsed, main() has enough information
- * to intelligently open the input and output CAR archive files.  The
- * name should have been specified on the command line, and passed to
- * this routine by main().  As a convenience to the user, if the CAR
- * suffix is left of the archive, this routine will add it on.
- * There is one legitimate excuse for not being able to open the input
- * file, which is if this is the 'Addfiles' command.  There may not be
- * an input archive when that command is called, in which case a failure
- * is tolerated.  Once the input file has been opened, an output file
- * may have to be opened as well.  The 'Addfiles', 'Delete', and
- * 'Replace' commands all modify the CAR archive, which means the input
- * CAR file is going to be processed and copied to the output.  Initially,
- * the output CAR file gets a temporary name.  It will be renamed later
- * after the input has been processed.
- *
- * Since we will probably be doing lots of bulk copies from the input
- * CAR file to the output CAR file, it makes sense to allocate big
- * buffers for the files.  This is done with the two calls to setvbuf()
- * right before the routine exits.
- *
- */
 
-void OpenArchiveFiles( name, command )
-char *name;
-int command;
+void OpenArchiveFiles ( char *name,  int command )
 {
     char *s;
     int i;
@@ -494,37 +304,8 @@ int command;
         setvbuf( OutputCarFile, NULL, _IOFBF, 8192 );
 }
 
-/*
- * Most of the commands given here take one or more file names as arguments.
- * The list of files given on the command line needs to be processed here
- * and put into a list that can easily be manipulated by other parts of
- * the program.  That processing is done here.  An array called FileList
- * is created, which will have a series of pointers to file names.
- * If no file names were listed on the command line, which could be the
- * case for commands like 'List' or 'Extract', a single file name of
- * '*' is put on the start of the list.  Since '*' is the ultimate wild
- * card, matching everything, we don't have to have special processing
- * anywhere else for an empty file list.  The file names here are also
- * massaged a bit further for MS-DOS file names.  Under MS-DOS, case is
- * not significant in file names.  This means that CARMAN shouldn't get
- * confused by thinking 'foo.c' and 'FOO.C' are two different files.  To
- * avoid this, all MS-DOS file names are converted here to lower case.
- * Additionally, any file name without an extension is forced to end with
- * a period, for similar reasons.  This ensures that CARMAN knows 'FOO' and
- * 'FOO.' are the same file.  Note that I don't want to do this for wild
- * card specifications.  Finally, there is the problem of MS-DOS wild
- * card file names.  When using the 'Add' command, wild cards on the
- * command line need to be expanded into real file names, then undergo
- * the additional processing mentioned earlier.  This is done with a call
- * to a function that is MS-DOS specific.  None of this special processing
- * is done under UNIX, where case is significant, and wild cards are
- * expanded by the shell.
- */
 
-void BuildFileList( argc, argv, command )
-int argc;
-char *argv[];
-int command;
+void BuildFileList ( int argc,  char *argv[],  int command )
 {
     int i;
     int count;
@@ -553,22 +334,8 @@ int command;
     FileList[ count ] = NULL;
 }
 
-/*
- * Under MS-DOS, wildcards on the command line are not expanded to
- * a list of file names, so it is up to application programs to do the
- * expansion themselves.  This routine takes care of that, by using
- * the findfirst and findnext routines.  Unfortunately, each MS-DOS compiler
- * maker has implemented this function slightly differently, so this may
- * need to be modified for your particular compiler.  However, this
- * routine can be replaced with a call to MassageMSDOSFileName(), and
- * the program will work just fine, without the ability to handle wild
- * card file names.
- */
 #ifdef MSDOS
-
-int ExpandAndMassageMSDOSFileNames( count, wild_name )
-int count;
-char *wild_name;
+int ExpandAndMassageMSDOSFileNames ( int count,  char *wild_name )
 {
     int done;
     DIR_STRUCT file_info_block;
@@ -605,20 +372,8 @@ char *wild_name;
     return( count );
 }
 
-/*
- * As was discussed earlier, this routine is called to perform a small
- * amount of normalization on file names.  Under MS_DOS, case is not
- * significant in file names.  In order to avoid confusion later, we force
- * all file names to be all lower case, so we can't accidentally add two
- * files with the same name to a CAR archive.  Likewise, we need to
- * prevent confusion between files that end in a period, and the same file
- * without the terminal period.  We fix this by always forcing the file
- * name to end in a period.
- */
 
-void MassageMSDOSFileName( count, file )
-int count;
-char *file;
+void MassageMSDOSFileName ( int count,  char *file )
 {
     int i;
     char *p;
@@ -637,25 +392,9 @@ char *file;
 	    strcat( FileList[ count ], "." );
     }
 }
-
 #endif
 
-/*
- * Once all of the argument processing is done, the main() procedure
- * checks to see if the command is 'Addfiles'.  If it is, it calls
- * this procedure to add all of the listed files to the output buffer
- * before any other processing is done.  That is taken care of right
- * here.  This routine basically does three jobs before calling the
- * Insert() routine, where the compression actually takes place.  First,
- * it tries to open the file, which ought to work.  Second, it strips the
- * leading drive and path information from the file, since we don't keep
- * that information in the archive.  Finally, it checks to see if the
- * resulting name is one that has already been added to the archive.
- * If it has, the file is skipped so that we don't end up with an invalid
- * archive.
- */
-
-int AddFileListToArchive()
+int AddFileListToArchive ()
 {
     int i;
     int j;
@@ -701,18 +440,8 @@ int AddFileListToArchive()
     return( i );
 }
 
-/*
- * This is the main loop where all the serious work done by this
- * program takes place.  Essentially, this routine starts at the
- * beginning of the input CAR file, and processes every file in
- * the CAR.  Depending on what command is being executed, that might
- * mean expanding he file, copying it to standard output,
- * adding it to the output CAR, or skipping over it completely.
- */
 
-int ProcessAllFilesInInputCar( command, count )
-int command;
-int count;
+int ProcessAllFilesInInputCar ( int command,  int count )
 {
     int matched;
     FILE *input_text_file;
@@ -728,15 +457,6 @@ int count;
 #endif
     else
         output_destination = NULL;
-/*
- * This is the loop where it all happens.  I read in the header for
- * each file in the input CAR, then see if it matches any of the file
- * and wildcard specifications in the FileList created earlier.  That
- * information, combined with the command, tells me what I need to
- * know in order to process the file. Note that if the 'Addfiles' command
- * is being executed, the InputCarFile will be NULL, so this loop
- * can be safely skipped.
- */
     while ( InputCarFile != NULL && ReadFileHeader() != 0 ) {
         matched = SearchFileList( Header.file_name );
         switch ( command ) {
@@ -791,26 +511,8 @@ int count;
 }
 
 
-/*
- * This routine looks through the entire list of arguments to see if
- * there is a match with the file name currently in the header.  As each
- * new file in InputCarFile is encountered in the main processing loop,
- * this routine is called to determine if it has an appearance anywhere
- * in the FileList[] array.  The results is used to in the main loop
- * to determine what action to take.  For example, if the command were
- * the 'Delete' command, the match result would determine whether to
- * copy the file form the InputCarFile to the OutputCarFile, or skip
- * over it.
- *
- * The actual work in this routine is really performed by the
- * WildCardMatch() routine which checks the file name against one of the
- * names in the FileList[] array.  Since most of the commands can use
- * wild cards to specify file names inside the CAR file, we need a
- * special comparison routine.
- */
 
-int SearchFileList( file_name )
-char *file_name;
+int SearchFileList ( char *file_name )
 {
     int i;
 
@@ -821,16 +523,8 @@ char *file_name;
     return( 0 );
 }
 
-/*
- * WildCardMatch() compares string to wild_string, looking for a match.
- * Wild card characters supported are only '*' and '?', where '*'
- * represents a string of any length, including 0, and '?' represents any
- * single character.
- */
 
-int WildCardMatch( string, wild_string )
-char *string;
-char *wild_string;
+int WildCardMatch ( char *string,  char *wild_string )
 {
     for ( ; ; ) {
         if ( *wild_string == '*' ) {
@@ -860,37 +554,14 @@ char *wild_string;
     }
 }
 
-/*
- * When the main processing loop reads in a header, it checks to see
- * if it is going to copy that file either to the OutputCarFile or expand
- * it.  If neither is going to happen, we need to skip past this file and
- * go on to the next header.  This can be done by seeking past the
- * compressed file.  Since the compressed size is stored in the header
- * information, it is easy to do.  Note that this routine assumes that the
- * file pointer has not been modified since the header was read in.  This
- * means it should be located at the first byte of the compressed data.
- */
 
-void SkipOverFileFromInputCar()
+void SkipOverFileFromInputCar ()
 {
 	fseek( InputCarFile, Header.compressed_size, SEEK_CUR );
 }
 
-/*
- * When performing an operation that modifies the input CAR file, compressed
- * files will frequently need to be copied from the input CAR file to the
- * output CAR file.  This routine does that using simple repeated block
- * copy operations.  Since it is writing directly to the outpu CAR file,
- * the first thing it needs to do is write out the current Header so that
- * the CAR file will be structure properly.  Following that, the compressed
- * file is copied one block at a time to the output.  When this routine
- * completes, the input file pointer is positioned at the next header in
- * the input CAR file, and the output file pointer is positioned at the
- * EOF position in the output file.  This is the proper place for the next
- * record to begin.
- */
 
-void CopyFileFromInputCar()
+void CopyFileFromInputCar ()
 {
     char buffer[ 256 ];
     unsigned int count;
@@ -909,14 +580,8 @@ void CopyFileFromInputCar()
     }
 }
 
-/*
- * When the operation requested by the user is 'List', this routine is
- * called to print out the column headers.  List output goes to standard
- * output, unlike most of the other messages in this program, which go
- * to stderr.
- */
 
-void PrintListTitles()
+void PrintListTitles ()
 {
     printf( "\n" );
     printf( "                       Original  Compressed\n" );
@@ -924,14 +589,8 @@ void PrintListTitles()
     printf( "------------------     --------  ----------  -----  --------  ------\n" );
 }
 
-/*
- * When the List command is given, the main loop reads in each header block,
- * then tests to see if the file name in the header block matches one of the
- * file names (including wildcards) in the FileList.  If it is, this routine
- * is called to print out the information on the file.
- */
 
-void ListCarFileEntry()
+void ListCarFileEntry ()
 {
     static char *methods[] = {
 	"Stored",
@@ -947,16 +606,8 @@ void ListCarFileEntry()
             methods[ Header.compression_method - 1 ] );
 }
 
-/*
- * The compression figure used in this book is calculated here.  The value
- * is scaled so that a file that has just been stored has a compression
- * ratio of 0%, while one that has been shrunk down to nothing would have
- * a ratio of 100%.
- */
 
-int RatioInPercent( compressed, original )
-unsigned long compressed;
-unsigned long original;
+int RatioInPercent ( unsigned long compressed,  unsigned long original )
 {
     int result;
 
@@ -966,30 +617,8 @@ unsigned long original;
     return( 100 - result );
 }
 
-/*
- * This routine is where all the information about the next file in
- * the archive is read in.  The data is read into the global Header
- * structure.  To preserve portability of CAR files across systems,
- * the data in each file header is packed into an unsigned char array
- * before it is written out to the file.  To read this data back in
- * to the Header structure, we first read it into another unsigned
- * character array, then employ an unpacking routine to convert that
- * data into ints and longs.  This helps us avoid problems with
- * big/little endian conflicts, as well as incompatibilities in structure
- * packing, which show up even between different compilers targetted for
- * the same architecture.
- *
- * To avoid causing any additional confusion, the data members for the
- * header structure are at least stored in exactly the same order as
- * they appear in the structure definition.  The primary difference is
- * that the entire file name character array is not stored, which would
- * waste a lot of space.  Instead, we just store the number of characters
- * in the name, including the null termination character.  The file name
- * serves the additional purpose of identifying the end of the CAR file
- * with a file name length of 0 bytes.
- */
 
-int ReadFileHeader()
+int ReadFileHeader ()
 {
     unsigned char header_data[ 17 ];
     unsigned long header_crc;
@@ -1021,15 +650,8 @@ int ReadFileHeader()
     return( 1 );
 }
 
-/*
- * This routine is used to transform packed characters into unsigned
- * integers.  Its only purpose is to convert packed character data
- * into integers and longs.
- */
 
-unsigned long UnpackUnsignedData( number_of_bytes, buffer )
-int number_of_bytes;
-unsigned char *buffer;
+unsigned long UnpackUnsignedData ( int number_of_bytes,  unsigned char *buffer )
 {
     unsigned long result;
     int shift_count;
@@ -1043,14 +665,8 @@ unsigned char *buffer;
     return( result );
 }
 
-/*
- * This routine is called to write out the current Global header block
- * to the output CAR file.  It employs the same packing mechanism
- * discussed earlier.  This routine also calculates the CRC of the
- * header, which is sometimes not necessary.
- */
 
-void WriteFileHeader()
+void WriteFileHeader ()
 {
     unsigned char header_data[ 17 ];
     int i;
@@ -1073,18 +689,7 @@ void WriteFileHeader()
     fwrite( header_data, 1, 17, OutputCarFile );
 }
 
-
-/*
- * This is the routine used to pack integers and longs into a character
- * array.  The character array is what eventually gets written out to the
- * CAR file.  The data is always written out with the least significant
- * bytes of the integers or long integers going first.
- */
-
-void PackUnsignedData( number_of_bytes, number, buffer )
-int number_of_bytes;
-unsigned long number;
-unsigned char *buffer;
+void PackUnsignedData ( int number_of_bytes,  unsigned long number,  unsigned char *buffer )
 {
     while ( number_of_bytes-- > 0 ) {
         *buffer++ = ( unsigned char ) ( number & 0xff );
@@ -1092,47 +697,12 @@ unsigned char *buffer;
     }
 }
 
-
-/*
- * The last header in a CAR file is defined by the fact that it has
- * a file name length of zero.  Since the file name is the
- * first element to be written out, we can create the final header
- * by just writing out a null termination character.  This technique
- * saves a little bit of space.
- */
-
-void WriteEndOfCarHeader()
+void WriteEndOfCarHeader ()
 {
     fputc( 0, OutputCarFile );
 }
 
-
-/*
- * This is the routine called by the main processing loop and the
- * Addfiles routine.  It takes an input file and writes the header
- * and file data to the Output CAR file.  There are several complications
- * that the routine has to deal with.  First of all, the header information
- * it gets when it first starts is incomplete.  For instance, we don't
- * know how many bytes the file will take up when it is compressed.
- * Because of this, the position of the header is stored, and the incomplete
- * copy is written out.  After the compression routine finishes, the
- * header is now complete.  In order to put the correct header into the
- * output CAR file, this routine seeks back in the file to the original
- * header position and rewrites it.
- *
- * The second complication lies in the fact that some files are not very
- * compressible.  In fact, for some files the LZSS algorithm may actually
- * cause the file to expand.  In these cases, the compression rouitine
- * gives up and passes a failure code back to Insert().  When this happens,
- * the routine has to seek back to the start of the file, rewind the
- * input file, and store it instead of compressing it.  Because of this,
- * the starting position of the file in the output CAR file is also stored
- * when the routine starts up.
- */
-
-void Insert( input_text_file, operation )
-FILE *input_text_file;
-char *operation;
+void Insert ( FILE *input_text_file,  char *operation )
 {
     long saved_position_of_header;
     long saved_position_of_file;
@@ -1158,19 +728,8 @@ char *operation;
     printf( " %d%%\n", RatioInPercent( Header.compressed_size, Header.original_size ) );
 }
 
-/*
- * The Extract routine can be called for one of three reasons.  If the
- * file in the CAR is truly being extracted, Extract() is called with
- * no destination specified.  In this case, the Extract routine opens the
- * file specified in the header and either unstores or decompresses the
- * file from the CAR file.  If the archive is being tested for veracity,
- * the destination file will have been opened up earlier and specified as
- * the null device.  Finally, the 'Print' option may have been selected,
- * in which case the destination file will be extracted to stdout.
- */
 
-void Extract( destination )
-FILE *destination;
+void Extract ( FILE *destination )
 {
     FILE *output_text_file;
     unsigned long crc;
@@ -1209,41 +768,15 @@ FILE *destination;
     if ( destination == NULL ) {
         fclose( output_text_file );
 	if ( error )
-#ifdef __STDC__
             remove( Header.file_name );
-#else
-            unlink( Header.file_name );
-#endif
+            //unlink( Header.file_name );
     }
     if ( !error )
         fprintf( stderr, " OK\n" );
 }
 
-/*
- * The CAR manager program is capable of handling many different forms of
- * compression.  All the compression program has to do is obey a few
- * simple rules.   First of all, the compression routine is required
- * to calculate the 32 bit CRC of the uncompressed data, and store the
- * result in the file Header, so it can be written out by the Insert()
- * routine.  The expansion routine calculates the CRC of the file it
- * creates, and returns it to Extract() for a check against the Header
- * value.  Second, the compression routine is required to quit if its
- * output is going to exceed the length of the input file.  It needs to
- * quite *before* the output length passes the input, or problems will
- * result.  The compression routine is required to return a true or false
- * value indicating whether or not the compression was a success.  And
- * finally, the expansion routine is expected to leave the file pointer
- * to the Input CAR file positioned at the first byte of the next file
- * header.  This means it has to read in all the bytes of the compressed
- * data, no more or less.
- *
- * All these things are relatively easy to accomplish for Store() and
- * Unstore(), since they do no compression or expansion.
- *
- */
 
-int Store( input_text_file )
-FILE *input_text_file;
+int Store ( FILE *input_text_file )
 {
     unsigned int n;
     char buffer[ 256 ];
@@ -1262,8 +795,7 @@ FILE *input_text_file;
     return( 1 );
 }
 
-unsigned long Unstore( destination )
-FILE *destination;
+unsigned long Unstore ( FILE *destination )
 {
     unsigned long crc;
     unsigned int count;
@@ -1291,32 +823,7 @@ FILE *destination;
     return( crc ^ CRC_MASK );
 }
 
-/*
- * The second set of compression routines are found here.  These
- * routines implement LZSS compression and expansion using 12 bit
- * index pointers and 4 bit match lengths.  These values were
- * specifically chosen because they allow for "blocked I/O".  Because
- * of their values, we can pack match/length pairs into pairs of
- * bytes, with characters that don't have matches going into single
- * bytes.  This helps increase I/O since single bit input and
- * output does not have to be employed.  Other than this single change,
- * this code is identical to the LZSS code used earlier in the book.
- */
 
-/*
- * Various constants used to define the compression parameters.  The
- * INDEX_BIT_COUNT tells how many bits we allocate to indices into the
- * text window.  This directly determines the WINDOW_SIZE.  The
- * LENGTH_BIT_COUNT tells how many bits we allocate for the length of
- * an encode phrase. This determines the size of the look ahead buffer.
- * The TREE_ROOT is a special node in the tree that always points to
- * the root node of the binary phrase tree.  END_OF_STREAM is a special
- * index used to flag the fact that the file has been completely
- * encoded, and there is no more data.  UNUSED is the null index for
- * the tree. MOD_WINDOW() is a macro used to perform arithmetic on tree
- * indices.
- *
- */
 
 #define INDEX_BIT_COUNT      12
 #define LENGTH_BIT_COUNT     4
@@ -1329,13 +836,6 @@ FILE *destination;
 #define UNUSED               0
 #define MOD_WINDOW( a )      ( ( a ) & ( WINDOW_SIZE - 1 ) )
 
-/*
- * These are the two global data structures used in this program.
- * The window[] array is exactly that, the window of previously seen
- * text, as well as the current look ahead text.  The tree[] structure
- * contains the binary tree of all of the strings in the window sorted
- * in order.
-*/
 
 unsigned char window[ WINDOW_SIZE ];
 
@@ -1345,11 +845,7 @@ struct {
     int larger_child;
 } tree[ WINDOW_SIZE + 1 ];
 
-/*
- * Function prototypes for both ANSI C compilers and their K&R brethren.
- */
 
-#ifdef __STDC__
 
 void InitTree( int r );
 void ContractNode( int old_node, int new_node );
@@ -1364,32 +860,7 @@ int OutputPair( int position, int length );
 void InitInputBuffer( void );
 int InputBit( void );
 
-
-#else
-
-void InitTree();
-void ContractNode();
-void ReplaceNode();
-int FindNextNode();
-void DeleteString();
-int AddString();
-void InitOutputBuffer();
-int FlushOutputBuffer();
-int OutputChar();
-int OutputPair();
-void InitInputBuffer();
-int InputBit();
-
-#endif
-
-/*
- * Since the tree is static data, it comes up with every node
- * initialized to 0, which is good, since 0 is the UNUSED code.
- * However, to make the tree really usable, a single phrase has to be
- * added to the tree so it has a root node.  That is done right here.
-*/
-void InitTree( r )
-int r;
+void InitTree ( int r )
 {
     int i;
 
@@ -1404,14 +875,7 @@ int r;
     tree[ r ].smaller_child = UNUSED;
 }
 
-/*
- * This routine is used when a node is being deleted.  The link to
- * its descendant is broken by pulling the descendant in to overlay
- * the existing link.
- */
-void ContractNode( old_node, new_node )
-int old_node;
-int new_node;
+void ContractNode ( int old_node,  int new_node )
 {
     tree[ new_node ].parent = tree[ old_node ].parent;
     if ( tree[ tree[ old_node ].parent ].larger_child == old_node )
@@ -1421,14 +885,7 @@ int new_node;
     tree[ old_node ].parent = UNUSED;
 }
 
-/*
- * This routine is also used when a node is being deleted.  However,
- * in this case, it is being replaced by a node that was not previously
- * in the tree.
- */
-void ReplaceNode( old_node, new_node )
-int old_node;
-int new_node;
+void ReplaceNode ( int old_node,  int new_node )
 {
     int parent;
 
@@ -1443,14 +900,7 @@ int new_node;
     tree[ old_node ].parent = UNUSED;
 }
 
-/*
- * This routine is used to find the next smallest node after the node
- * argument.  It assumes that the node has a smaller child.  We find
- * the next smallest child by going to the smaller_child node, then
- * going to the end of the larger_child descendant chain.
-*/
-int FindNextNode( node )
-int node;
+int FindNextNode ( int node )
 {
     int next;
 
@@ -1460,16 +910,7 @@ int node;
     return( next );
 }
 
-/*
- * This routine performs the classic binary tree deletion algorithm.
- * If the node to be deleted has a null link in either direction, we
- * just pull the non-null link up one to replace the existing link.
- * If both links exist, we instead delete the next link in order, which
- * is guaranteed to have a null link, then replace the node to be deleted
- * with the next link.
- */
-void DeleteString( p )
-int p;
+void DeleteString ( int p )
 {
     int  replacement;
 
@@ -1486,18 +927,8 @@ int p;
     }
 }
 
-/*
- * This where most of the work done by the encoder takes place.  This
- * routine is responsible for adding the new node to the binary tree.
- * It also has to find the best match among all the existing nodes in
- * the tree, and return that to the calling routine.  To make matters
- * even more complicated, if the new_node has a duplicate in the tree,
- * the old_node is deleted, for reasons of efficiency.
- */
 
-int AddString( new_node, match_position )
-int new_node;
-int *match_position;
+int AddString ( int new_node,  int *match_position )
 {
     int i;
     int test_node;
@@ -1539,63 +970,19 @@ int *match_position;
     }
 }
 
-/*
- * This section of code and data makes up the blocked I/O portion of
- * the program.  Every token output consists of a single flag bit, followed
- * by either a single character or a index/length pair.  The flag bits
- * are stored in the first byte of a buffer array, and the characters
- * and index/length pairs are stored sequentially in the remaining
- * positions in the array.  After every eight output operations, the
- * first character of the array is full of flag bits, so the remaining
- * bytes stored in the array can be output.  This can be done with a
- * single fwrite() operation, making for greater efficiency.
- *
- * All that is needed to implement this is a few routines, plus three
- * data objects, which follow below.  The buffer has the flag bits
- * packed into its first character, with the remainder consisting of
- * the characters and index/length pairs, appearing in the order they
- * were output.  The FlagBitMask  is used to indicate where the next
- * flag bit will go when packed into DataBuffer[ 0 ].  Finally, the
- * BufferOffset is used to indicate where the next token will be stored
- * in the buffer.
- */
-
 char DataBuffer[ 17 ];
 int FlagBitMask;
 unsigned int BufferOffset;
 
-/*
- * To initialize the output buffer, we set the FlagBitMask to the first
- * bit position, can clear DataBuffer[0], which will hold all the
- * Flag bits.  Finally, the BufferOffset is set to 1, which is where the
- * first character or index/length pair will go.
- */
-
-void InitOutputBuffer()
+void InitOutputBuffer ()
 {
     DataBuffer[ 0 ] = 0;
     FlagBitMask = 1;
     BufferOffset = 1;
 }
 
-/*
- * This routine is called during one of two different situations.  First,
- * it can potentially be called right after a character or a length/index
- * pair is added to the DataBuffer[].  If the position of the bit in the
- * FlagBitMask indicates that it is full, the output routine calls this
- * routine to flush data into the output file, and reset the output
- * variables to their initial state.  The other time this routine is
- * called is when the compression routine is ready to exit.  If there is
- * any data in the buffer at that time, it needs to be flushed.
- *
- * Note that this routine checks carefully to be sure that it doesn't
- * ever write out more data than was in the original uncompressed file.
- * It returns a 0 if this happens, which filters back to the compression
- * program, so that it can abort if this happens.
- *
- */
 
-int FlushOutputBuffer()
+int FlushOutputBuffer ()
 {
     if ( BufferOffset == 1 )
         return( 1 );
@@ -1608,19 +995,8 @@ int FlushOutputBuffer()
     return( 1 );
 }
 
-/*
- * This routine adds a single character to the output buffer.  In this
- * case, the flag bit is set, indicating that the next character is an
- * uncompressed byte.  After setting the flag and storing the byte,
- * the flag bit is shifted over, and checked.  If it turns out that all
- * eight bits in the flag bit character are used up, then we have to
- * flush the buffer and reinitialize the data.  Note that if the
- * FlushOutputBuffer() routine detects that the output has grown larger
- * than the input, it returns a 0 back to the calling routine.
- */
 
-int OutputChar( data )
-int data;
+int OutputChar ( int data )
 {
     DataBuffer[ BufferOffset++ ] = (char) data;
     DataBuffer[ 0 ] |= FlagBitMask;
@@ -1631,23 +1007,8 @@ int data;
         return( 1 );
 }
 
-/*
- * This routine is called to output a 12 bit position pointer and a 4 bit
- * length.  The 4 bit length is shifted to the top four bits of the first
- * of two DataBuffer[] characters.  The lower four bits contain the upper
- * four bits of the 12 bit position index.  The next of the two DataBuffer
- * characters gets the lower eight bits of the position index.  After
- * all that work to store those 16 bits, the FlagBitMask is shifted over,
- * and checked to see if we have used up all our bits.  If we have,
- * the output buffer is flushed, and the output data elements are reset.
- * If the FlushOutputBuffer routine detects that the output file has
- * grown too large, it passes and error return back via this routine,
- * so that it can abort.
- */
 
-int OutputPair( position, length )
-int position;
-int length;
+int OutputPair ( int position,  int length )
 {
     DataBuffer[ BufferOffset ] = (char) ( length << 4 );
     DataBuffer[ BufferOffset++ ] |= ( position >> 8 );
@@ -1659,31 +1020,15 @@ int length;
         return( 1 );
 }
 
-/*
- * The input process uses the same data structures as the blocked output
- * routines, but it is somewhat simpler, in that it doesn't actually have
- * to read in a whole block of data at once.  Instead, it just reads in
- * a single character full of flag bits into DataBuffer[0], and passes
- * individual bits back to the Expansion program when asked for them.
- * The expansion program is left to its own devices for reading in the
- * characters, indices, and match lengths.  They can be read in sequentially
- * using normal file I/O.
- */
 
-void InitInputBuffer()
+void InitInputBuffer ()
 {
     FlagBitMask = 1;
     DataBuffer[ 0 ] = (char) getc( InputCarFile );
 }
 
-/*
- * When the Expansion program wants a flag bit, it calls this routine.
- * This routine has to keep track of whether or not it has run out of
- * flag bits.  If it has, it has to go back and reinitialize so as to
- * have a fresh set.
- */
 
-int InputBit()
+int InputBit ()
 {
     if ( FlagBitMask == 0x100 )
         InitInputBuffer();
@@ -1691,24 +1036,8 @@ int InputBit()
     return( DataBuffer[ 0 ] & ( FlagBitMask >> 1 ) );
 }
 
-/*
- * This is the compression routine.  It has to first load up the look
- * ahead buffer, then go into the main compression loop.  The main loop
- * decides whether to output a single character or an index/length
- * token that defines a phrase.  Once the character or phrase has been
- * sent out, another loop has to run.  The second loop reads in new
- * characters, deletes the strings that are overwritten by the new
- * character, then adds the strings that are created by the new
- * character.  While running it has the additional responsibility of
- * creating the checksum of the input data, and checking for when the
- * output data grows too large.  The program returns a success or failure
- * indicator.  It also has to update the original_crc and compressed_size
- * elements in Header data structure.
- *
- */
 
-int LZSSCompress( input_text_file )
-FILE *input_text_file;
+int LZSSCompress ( FILE *input_text_file )
 {
     int i;
     int c;
@@ -1766,16 +1095,8 @@ FILE *input_text_file;
     return( FlushOutputBuffer() );
 }
 
-/*
- * This is the expansion routine for the LZSS algorithm.  All it has
- * to do is read in flag bits, decide whether to read in a character or
- * a index/length pair, and take the appropriate action.  It is responsible
- * for keeping track of the crc of the output data, and must return it
- * to the calling routine, for verification.
- */
 
-unsigned long LZSSExpand( output )
-FILE *output;
+unsigned long LZSSExpand ( FILE *output )
 {
     int i;
     int current_position;
@@ -1819,5 +1140,3 @@ FILE *output;
     }
     return( crc ^ CRC_MASK );
 }
-/************************** End of CARMAN.C *************************/
-

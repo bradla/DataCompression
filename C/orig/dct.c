@@ -1,18 +1,40 @@
+/************************** Start of DCT.C *************************
+ *
+ * This is the DCT module, which implements a graphics compression
+ * program based on the Discrete Cosine Transform.  It needs to be
+ * linked with the standard support routines.
+ *
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include "bitio.h"
 #include "errhand.h"
 
+/*
+ * A few parameters that could be adjusted to modify the compression
+ * algorithm.  The first two define the number of rows and columns in
+ * the grey scale image.   The last one, 'N', defines the DCT block
+ * size.
+ */
 #define ROWS            200
 #define COLS            320
 #define N               8
 
+/*
+ * This macro is used to ensure correct rounding of integer values.
+ */
 #define ROUND( a )      ( ( (a) < 0 ) ? (int) ( (a) - 0.5 ) : \
                                                   (int) ( (a) + 0.5 ) )
 
 char *CompressionName = "DCT compression";
 char *Usage           = "infile outfile [quality]\nQuality from 0-25";
+
+/*
+ * Function prototypes for both ANSI and K&R.
+ */
+#ifdef __STDC__
 
 void Initialize( int quality );
 void ReadPixelStrip( FILE *input, unsigned char strip[ N ][ COLS ] );
@@ -25,6 +47,26 @@ void ForwardDCT( unsigned char *input[ N ], int output[ N ][ N ] );
 void InverseDCT( int input[ N ][ N ], unsigned char *output[ N ] );
 void CompressFile( FILE *input, BIT_FILE *output, int argc, char *argv[] );
 void ExpandFile( BIT_FILE *input, FILE *output, int argc, char *argv[] );
+
+#else
+
+void Initialize();
+void ReadPixelStrip();
+int InputCode();
+void ReadDCTData();
+void OutputCode();
+void WriteDCTData();
+void WritePixelStrip();
+void ForwardDCT();
+void InverseDCT();
+void CompressFile();
+void ExpandFile();
+
+#endif
+
+/*
+ * Global data used at various places in the program.
+ */
 
 unsigned char PixelStrip[ N ][ COLS ];
 double C[ N ][ N ];
@@ -55,8 +97,17 @@ struct zigzag {
     {7, 7}
 };
 
+/*
+ * The initialization routine has the job of setting up the Cosine
+ * Transform matrix, as well as its transposed value.  These two matrices
+ * are used when calculating both the DCT and its inverse.  In addition,
+ * the quantization matrix is set up based on the quality parameter passed
+ * to this routine.  Additionally, the two run length parameters are both
+ * set to 0.
+ */
 
-void Initialize ( int quality )
+void Initialize( quality )
+int quality;
 {
     int i;
     int j;
@@ -80,7 +131,15 @@ void Initialize ( int quality )
     }
 }
 
-void ReadPixelStrip ( FILE *input,  unsigned char strip[ N ][ COLS ] )
+/*
+ * This routine is called when compressing a grey scale file.  It reads
+ * in a strip that is N (usually 8) rows deep and COLS (usually 320)
+ * columns wide.  This strip is then repeatedly processed, a block at a
+ * time, by the forward DCT routine.
+ */
+void ReadPixelStrip( input, strip )
+FILE *input;
+unsigned char strip[ N ][ COLS ];
 {
     int row;
     int col;
@@ -94,8 +153,48 @@ void ReadPixelStrip ( FILE *input,  unsigned char strip[ N ][ COLS ] )
            strip[ row ][ col ] = (unsigned char) c;
         }
 }
+/*
+ * This routine reads in a DCT code from the compressed file.  The code
+ * consists of two components, a bit count, and an encoded value.  The
+ * bit count is encoded as a prefix code with the following binar
+ * values:
+ *
+ *               Number of Bits   Binary Code
+ *              --------------   -----------
+ *                    0              00
+ *                    1              010
+ *                    2              011
+ *                    3              1000
+ *                    4              1001
+ *                    5              1010
+ *                    6              1011
+ *                    7              1100
+ *                    8              1101
+ *                    9              1110
+ *                    10             1111
+ *
+ * A bit count of zero is followed by a four bit number telling how many
+ * zeros are in the encoded run.  A value of 1 through ten indicates a
+ * code value follows, which takes up that many bits.  The encoding of values
+ * into this system has the following characteristics:
+ *
+ *         Bit Count               Amplitudes
+ *         ---------       --------------------------
+ *             1                      -1, 1
+ *             2                -3 to -2, 2 to 3
+ *             3                -7 to -4, 4 to 7
+ *             4               -15 to -8, 8 to 15
+ *             5              -31 to -16, 16 to 31
+ *             6              -63 to -32, 32 to 64
+ *             7             -127 to -64, 64 to 127
+ *             8            -255 to -128, 128 to 255
+ *             9            -511 to -256, 256 to 511
+ *            10           -1023 to -512, 512 to 1023
+ *
+ */
 
-int InputCode ( BIT_FILE *input_file )
+int InputCode( input_file )
+BIT_FILE *input_file;
 {
     int bit_count;
     int result;
@@ -119,8 +218,15 @@ int InputCode ( BIT_FILE *input_file )
     return( result - ( 1 << bit_count ) + 1 );
 }
 
+/*
+ * This routine reads in a block of encoded DCT data from a compressed file.
+ * The routine reorders it in row major format, and dequantizes it using
+ * the quantization matrix.
+ */
 
-void ReadDCTData ( BIT_FILE *input_file,  int input_data[ N ][ N ] )
+void ReadDCTData( input_file, input_data )
+BIT_FILE *input_file;
+int input_data[ N ][ N ];
 {
     int i;
     int row;
@@ -134,8 +240,15 @@ void ReadDCTData ( BIT_FILE *input_file,  int input_data[ N ][ N ] )
     }
 }
 
+/*
+ * This routine outputs a code to the compressed DCT file.  For specs
+ * on the exact format, see the comments that go with InputCode, shown
+ * earlier in this file.
+ */
 
-void OutputCode ( BIT_FILE *output_file,  int code )
+void OutputCode( output_file, code )
+BIT_FILE *output_file;
+int code;
 {
     int top_of_range;
     int abs_code;
@@ -179,8 +292,14 @@ void OutputCode ( BIT_FILE *output_file,  int code )
                     bit_count );
 }
 
+/*
+ * This routine takes DCT data, puts it in Zig Zag order, the quantizes
+ * it, and outputs the code.
+ */
 
-void WriteDCTData ( BIT_FILE *output_file,  int output_data[ N ][ N ] )
+void WriteDCTData( output_file, output_data )
+BIT_FILE *output_file;
+int output_data[ N ][ N ];
 {
     int i;
     int row;
@@ -195,8 +314,13 @@ void WriteDCTData ( BIT_FILE *output_file,  int output_data[ N ][ N ] )
     }
 }
 
+/*
+ * This routine writes out a strip of pixel data to a GS format file.
+ */
 
-void WritePixelStrip ( FILE *output,  unsigned char strip[ N ][ COLS ] )
+void WritePixelStrip( output, strip )
+FILE *output;
+unsigned char strip[ N ][ COLS ];
 {
     int row;
     int col;
@@ -206,8 +330,15 @@ void WritePixelStrip ( FILE *output,  unsigned char strip[ N ][ COLS ] )
            putc( strip[ row ][ col ], output );
 }
 
+/*
+ * The Forward DCT routine implements the matrix function:
+ *
+ *                     DCT = C * pixels * Ct
+ */
 
-void ForwardDCT ( unsigned char *input[ N ],  int output[ N ][ N ] )
+void ForwardDCT( input, output )
+unsigned char *input[ N ];
+int output[ N ][ N ];
 {
     double temp[ N ][ N ];
     double temp1;
@@ -215,6 +346,7 @@ void ForwardDCT ( unsigned char *input[ N ],  int output[ N ][ N ] )
     int j;
     int k;
 
+/*  MatrixMultiply( temp, input, Ct ); */
     for ( i = 0 ; i < N ; i++ ) {
         for ( j = 0 ; j < N ; j++ ) {
             temp[ i ][ j ] = 0.0;
@@ -224,6 +356,7 @@ void ForwardDCT ( unsigned char *input[ N ],  int output[ N ][ N ] )
         }
     }
 
+/*  MatrixMultiply( output, C, temp ); */
     for ( i = 0 ; i < N ; i++ ) {
         for ( j = 0 ; j < N ; j++ ) {
             temp1 = 0.0;
@@ -234,8 +367,15 @@ void ForwardDCT ( unsigned char *input[ N ],  int output[ N ][ N ] )
     }
 }
 
+/*
+ * The Inverse DCT routine implements the matrix function:
+ *
+ *                     pixels = C * DCT * Ct
+ */
 
-void InverseDCT ( int input[ N ][ N ],  unsigned char *output[ N ] )
+void InverseDCT( input, output )
+int input[ N ][ N ];
+unsigned char *output[ N ];
 {
     double temp[ N ][ N ];
     double temp1;
@@ -243,6 +383,7 @@ void InverseDCT ( int input[ N ][ N ],  unsigned char *output[ N ] )
     int j;
     int k;
 
+/*  MatrixMultiply( temp, input, C ); */
     for ( i = 0 ; i < N ; i++ ) {
         for ( j = 0 ; j < N ; j++ ) {
             temp[ i ][ j ] = 0.0;
@@ -251,6 +392,7 @@ void InverseDCT ( int input[ N ][ N ],  unsigned char *output[ N ] )
         }
     }
 
+/*  MatrixMultiply( output, Ct, temp ); */
     for ( i = 0 ; i < N ; i++ ) {
         for ( j = 0 ; j < N ; j++ ) {
             temp1 = 0.0;
@@ -267,8 +409,18 @@ void InverseDCT ( int input[ N ][ N ],  unsigned char *output[ N ] )
     }
 }
 
+/*
+ * This is the main compression routine.  By the time it gets called,
+ * the input and output files have been properly opened, so all it has to
+ * do is the compression.  Note that the compression routine expects an
+ * additional parameter, the quality value, ranging from 0 to 25.
+ */
 
-void CompressFile ( FILE *input,  BIT_FILE *output,  int argc,  char *argv[] )
+void CompressFile( input, output, argc, argv )
+FILE *input;
+BIT_FILE *output;
+int argc;
+char *argv[];
 {
     int row;
     int col;
@@ -300,8 +452,16 @@ void CompressFile ( FILE *input,  BIT_FILE *output,  int argc,  char *argv[] )
         printf( "Unused argument: %s\n", *argv++ );
 }
 
+/*
+ * The expansion routine reads in the compressed data from the DCT file,
+ * then writes out the decompressed grey scale file.
+ */
 
-void ExpandFile ( BIT_FILE *input,  FILE *output,  int argc,  char *argv[] )
+void ExpandFile( input, output, argc, argv )
+BIT_FILE *input;
+FILE *output;
+int argc;
+char *argv[];
 {
     int row;
     int col;
@@ -325,3 +485,6 @@ void ExpandFile ( BIT_FILE *input,  FILE *output,  int argc,  char *argv[] )
     while ( argc-- > 0 )
         printf( "Unused argument: %s\n", *argv++ );
 }
+
+/************************** End of DCT.C *************************/
+

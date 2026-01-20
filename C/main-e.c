@@ -1,28 +1,3 @@
-/************************** Start of MAIN-E.C *************************
- *
- * This is the driver program used when testing compression algorithms.
- * In order to cut back on repetitive code, this version of main is used
- * with all of the expansion routines.  It in order to turn into a real
- * program, it needs to have another module that supplies a routine and
- * two strings, namely:
- *
- *     void ExpandFile( BIT_FILE *input, FILE *output, int argc, char *argv );
- *     char *Usage;
- *     char *CompressionName;
- *
- * The main() routine supplied here has the job of checking for valid
- * input and output files, opening them, and then calling the compression
- * routine.  If the files are not present, or no arguments are supplied,
- * it calls the Usage() routine, which is expected to print out
- * the compression type.  All of these routines are defined in the main.h
- * header file.
- *
- * After this is built into an expansion program of any sort, the program
- * can be called like this:
- *
- *   expand infile outfile [ options ]
- *
- */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,19 +5,9 @@
 #include "errhand.h"
 #include "main.h"
 
-#ifdef __STDC__
-
 void usage_exit( char *prog_name );
 
-#else
-
-void usage_exit();
-
-#endif
-
-int main( argc, argv )
-int argc;
-char *argv[];
+int main ( int argc,  char *argv[] )
 {
     PROFILE_FUNCTION();
 
@@ -72,17 +37,7 @@ char *argv[];
     return( 0 );
 }
 
-/*
- * This routine just wants to print out the usage message that is
- * called for when the program is run with no parameters.  The first
- * part of the Usage statement is supposed to be just the program
- * name.  argv[ 0 ] generally holds the fully qualified path name
- * of the program being run.  I make a half-hearted attempt to strip
- * out that path info before printing it.  It should get the general
- * idea across.
- */
-void usage_exit( prog_name )
-char *prog_name;
+void usage_exit ( char *prog_name )
 {
     char *short_name;
     char *extension;
@@ -102,7 +57,3 @@ char *prog_name;
     printf( "\nUsage:  %s %s\n", short_name, Usage );
     exit( 0 );
 }
-
-/************************** Start of MAIN-E.C *************************/
-
-

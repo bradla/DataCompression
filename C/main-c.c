@@ -1,30 +1,3 @@
-/************************* Start of MAIN-C.C *************************/
-/*
- * This is the driver program used when testing compression algorithms.
- * In order to cut back on repetitive code, this version of main is
- * used with all of the compression routines.  It in order to turn into
- * a real program, it needs to have another module that supplies one
- * routine and two strings, namely:
- *
- *     void CompressFile( FILE *input, BIT_FILE *output,
- *                        int argc, char *argv );
- *     char *Usage;
- *     char *CompressionName;
- *
- * The main() routine supplied here has the job of checking for valid
- * input and output files, opening them, and then calling the
- * compression routine.  If the files are not present, or no arguments
- * are supplied, it prints out an error message, which includes the
- * Usage string supplied by the compression module.  All of the
- * routines and strings needed by this routine are defined in the
- * main.h header file.
- *
- * After this is built into a compression program of any sort, the
- * program can be called like this:
- *
- *   main-c infile outfile [ options ]
- *
- */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,23 +5,11 @@
 #include "errhand.h"
 #include "main.h"
 
-#ifdef __STDC__
-
 void usage_exit( char *prog_name );
 void print_ratios( char *input, char *output );
 long file_size( char *name );
 
-#else
-
-void usage_exit();
-void print_ratios();
-long file_size();
-
-#endif
-
-int main( argc, argv )
-int argc;
-char *argv[];
+int main( int argc, char *argv[] )
 {
     PROFILE_FUNCTION();
 
@@ -76,17 +37,7 @@ char *argv[];
     return( 0 );
 }
 
-/*
- * This routine just wants to print out the usage message that is
- * called for when the program is run with no parameters.  The first
- * part of the Usage statement is supposed to be just the program
- * name.  argv[ 0 ] generally holds the fully qualified path name
- * of the program being run.  I make a half-hearted attempt to strip
- * out that path info and file extension before printing it.  It should
- * get the general idea across.
- */
-void usage_exit( prog_name )
-char *prog_name;
+void usage_exit( char *prog_name )
 {
     char *short_name;
     char *extension;
@@ -107,18 +58,11 @@ char *prog_name;
     exit( 0 );
 }
 
-/*
- * This routine is used by main to print out get the size of a file after
- * it has been closed.  It does all the work, and returns a long.  The
- * main program gets the file size for the plain text, and the size of
- * the compressed file, and prints the ratio.
- */
 #ifndef SEEK_END
 #define SEEK_END 2
 #endif
 
-long file_size( name )
-char *name;
+long file_size( char *name )
 {
     long eof_ftell;
     FILE *file;
@@ -132,13 +76,7 @@ char *name;
     return( eof_ftell );
 }
 
-/*
- * This routine prints out the compression ratios after the input
- * and output files have been closed.
- */
-void print_ratios( input, output )
-char *input;
-char *output;
+void print_ratios( char *input, char *output )
 {
     long input_size;
     long output_size;
@@ -155,6 +93,3 @@ char *output;
         output_size = 1;
     printf( "Compression ratio:  %d%%\n", ratio );
 }
-
-/************************** End of MAIN-C.C **************************/
-

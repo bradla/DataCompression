@@ -1,10 +1,3 @@
-/************************** Start of HUFF.C *************************
- *
- * This is the Huffman coding module used in Chapter 3.
- * Compile with BITIO.C, ERRHAND.C, and either MAIN-C.C or MAIN-E.C
- */
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,14 +6,6 @@
 #include "errhand.h"
 #include "main.h"
 
-/*
- * The NODE structure is a node in the Huffman decoding tree.  It has a
- * count, which is its weight in the tree, and the node numbers of its
- * two children.  The saved_count member of the structure is only
- * there for debugging purposes, and can be safely taken out at any
- * time.  It just holds the intial count for each of the symbols, since
- * the count member is continually being modified as the tree grows.
- */
 typedef struct tree_node {
     unsigned int count;
     unsigned int saved_count;
@@ -28,27 +13,12 @@ typedef struct tree_node {
     int child_1;
 } NODE;
 
-/*
- * A Huffman tree is set up for decoding, not encoding.  When encoding,
- * I first walk through the tree and build up a table of codes for
- * each symbol.  The codes are stored in this CODE structure.
- */
 typedef struct code {
     unsigned int code;
     int code_bits;
 } CODE;
 
-/*
- * The special EOS symbol is 256, the first available symbol after all
- * of the possible bytes.  When decoding, reading this symbols
- * indicates that all of the data has been read in.
- */
 #define END_OF_STREAM 256
-
-/*
- * Local function prototypes, defined with or without ANSI prototypes.
- */
-#ifdef __STDC__
 
 void count_bytes( FILE *input, unsigned long *long_counts );
 void scale_counts( unsigned long *long_counts, NODE *nodes );
@@ -66,53 +36,11 @@ void expand_data( BIT_FILE *input, FILE *output, NODE *nodes,
                   int root_node );
 void print_char( int c );
 
-#else   /* __STDC__ */
-
-void count_bytes();
-void scale_counts();
-int build_tree();
-void convert_tree_to_code();
-void output_counts();
-void input_counts();
-void print_model();
-void compress_data();
-void expand_data();
-void print_char();
-
-#endif  /* __STDC__ */
-
-/*
- * These two strings are used by MAIN-C.C and MAIN-E.C to print
- * messages of importance to the user of the program.
- */
 char *CompressionName = "static order 0 model with Huffman coding";
 char *Usage =
 "infile outfile [-d]\n\nSpecifying -d will dump the modeling data\n";
 
-/*
- * CompressFile is the compression routine called by MAIN-C.C.  It
- * looks for a single additional argument to be passed to it from
- * the command line:  "-d".  If a "-d" is present, it means the
- * user wants to see the model data dumped out for debugging
- * purposes.
- *
- * This routine works in a fairly straightforward manner.  First,
- * it has to allocate storage for three different arrays of data.
- * Next, it counts all the bytes in the input file.  The counts
- * are all stored in long int, so the next step is scale them down
- * to single byte counts in the NODE array.  After the counts are
- * scaled, the Huffman decoding tree is built on top of the NODE
- * array.  Another routine walks through the tree to build a table
- * of codes, one per symbol.  Finally, when the codes are all ready,
- * compressing the file is a simple matter.  After the file is
- * compressed, the storage is freed up, and the routine returns.
- *
- */
-void CompressFile( input, output, argc, argv )
-FILE *input;
-BIT_FILE *output;
-int argc;
-char *argv[];
+void CompressFile( FILE *input,  BIT_FILE *output,  int argc,  char *argv[] )
 {
     unsigned long *counts;
     NODE *nodes;
@@ -139,21 +67,7 @@ char *argv[];
     free( (char *) codes );
 }
 
-/*
- * ExpandFile is the routine called by MAIN-E.C to expand a file that
- * has been compressed with order 0 Huffman coding.  This routine has
- * a simpler job than that of the Compression routine.  All it has to
- * do is read in the counts that have been stored in the compressed
- * file, then build the Huffman tree.  The data can then be expanded
- * by reading in a bit at a time from the compressed file.  Finally,
- * the node array is freed and the routine returns.
- *
- */
-void ExpandFile( input, output, argc, argv )
-BIT_FILE *input;
-FILE *output;
-int argc;
-char *argv[];
+void ExpandFile ( BIT_FILE *input,  FILE *output,  int argc,  char *argv[] )
 {
     NODE *nodes;
     int root_node;
@@ -168,36 +82,7 @@ char *argv[];
     free( (char *) nodes );
 }
 
-/*
- * In order for the compressor to build the same model, I have to store
- * the symbol counts in the compressed file so the expander can read
- * them in.  In order to save space, I don't save all 256 symbols
- * unconditionally.  The format used to store counts looks like this:
- *
- *  start, stop, counts, start, stop, counts, ... 0
- *
- * This means that I store runs of counts, until all the non-zero
- * counts have been stored.  At this time the list is terminated by
- * storing a start value of 0.  Note that at least 1 run of counts has
- * to be stored, so even if the first start value is 0, I read it in.
- * It also means that even in an empty file that has no counts, I have
- * to pass at least one count.
- *
- * In order to efficiently use this format, I have to identify runs of
- * non-zero counts.  Because of the format used, I don't want to stop a
- * run because of just one or two zeros in the count stream.  So I have
- * to sit in a loop looking for strings of three or more zero values in
- * a row.
- *
- * This is simple in concept, but it ends up being one of the most
- * complicated routines in the whole program.  A routine that just
- * writes out 256 values without attempting to optimize would be much
- * simpler, but would hurt compression quite a bit on small files.
- *
- */
-void output_counts( output, nodes )
-BIT_FILE *output;
-NODE *nodes;
+void output_counts ( BIT_FILE *output,  NODE *nodes )
 {
     int first;
     int last;
@@ -207,14 +92,6 @@ NODE *nodes;
     first = 0;
     while ( first < 255 && nodes[ first ].count == 0 )
 	    first++;
-/*
- * Each time I hit the start of the loop, I assume that first is the
- * number for a run of non-zero values.  The rest of the loop is
- * concerned with finding the value for last, which is the end of the
- * run, and the value of next, which is the start of the next run.
- * At the end of the loop, I assign next to first, so it starts in on
- * the next run.
- */
     for ( ; first < 256 ; first = next ) {
 	last = first + 1;
 	for ( ; ; ) {
@@ -231,9 +108,6 @@ NODE *nodes;
 		break;
 	    last = next;
 	};
-/*
- * Here is where I output first, last, and all the counts in between.
- */
 	if ( putc( first, output->file ) != first )
 	    fatal_error( "Error writing byte counts\n" );
 	if ( putc( last, output->file ) != last )
@@ -248,17 +122,8 @@ NODE *nodes;
 	    fatal_error( "Error writing byte counts\n" );
 }
 
-/*
- * When expanding, I have to read in the same set of counts.  This is
- * quite a bit easier that the process of writing them out, since no
- * decision making needs to be done.  All I do is read in first, check
- * to see if I am all done, and if not, read in last and a string of
- * counts.
- */
 
-void input_counts( input, nodes )
-BIT_FILE *input;
-NODE *nodes;
+void input_counts ( BIT_FILE *input,  NODE *nodes )
 {
     int first;
     int last;
@@ -287,22 +152,11 @@ NODE *nodes;
     nodes[ END_OF_STREAM ].count = 1;
 }
 
-/*
- * This routine counts the frequency of occurence of every byte in
- * the input file.  It marks the place in the input stream where it
- * started, counts up all the bytes, then returns to the place where
- * it started.  In most C implementations, the length of a file
- * cannot exceed an unsigned long, so this routine should always
- * work.
- */
-
 #ifndef SEEK_SET
 #define SEEK_SET 0
 #endif
 
-void count_bytes( input, counts )
-FILE *input;
-unsigned long *counts;
+void count_bytes ( FILE *input,  unsigned long *counts )
 {
     long input_marker;
     int c;
@@ -313,16 +167,7 @@ unsigned long *counts;
     fseek( input, input_marker, SEEK_SET );
 }
 
-/*
- * In order to limit the size of my Huffman codes to 16 bits, I scale
- * my counts down so they fit in an unsigned char, and then store them
- * all as initial weights in my NODE array.  The only thing to be
- * careful of is to make sure that a node with a non-zero count doesn't
- * get scaled down to 0.  Nodes with values of 0 don't get codes.
- */
-void scale_counts( counts, nodes )
-unsigned long *counts;
-NODE *nodes;
+void scale_counts ( unsigned long *counts,  NODE *nodes )
 {
     unsigned long max_count;
     int i;
@@ -344,23 +189,7 @@ NODE *nodes;
     }
     nodes[ END_OF_STREAM ].count = 1;
 }
-/*
- * Building the Huffman tree is fairly simple.  All of the active nodes
- * are scanned in order to locate the two nodes with the minimum
- * weights.  These two weights are added together and assigned to a new
- * node.  The new node makes the two minimum nodes into its 0 child
- * and 1 child.  The two minimum nodes are then marked as inactive.
- * This process repeats until their is only one node left, which is the
- * root node.  The tree is done, and the root node is passed back
- * to the calling routine.
- *
- * Node 513 is used here to arbitratily provide a node with a guaranteed
- * maximum value.  It starts off being min_1 and min_2.  After all active
- * nodes have been scanned, I can tell if there is only one active node
- * left by checking to see if min_1 is still 513.
- */
-int build_tree( nodes )
-NODE *nodes;
+int build_tree ( NODE *nodes )
 {
     int next_free;
     int i;
@@ -395,20 +224,7 @@ NODE *nodes;
     return( next_free );
 }
 
-/*
- * Since the Huffman tree is built as a decoding tree, there is
- * no simple way to get the encoding values for each symbol out of
- * it.  This routine recursively walks through the tree, adding the
- * child bits to each code until it gets to a leaf.  When it gets
- * to a leaf, it stores the code value in the CODE element, and
- * returns.
- */
-void convert_tree_to_code( nodes, codes, code_so_far, bits, node )
-NODE *nodes;
-CODE *codes;
-unsigned int code_so_far;
-int bits;
-int node;
+void convert_tree_to_code ( NODE *nodes,  CODE *codes,  unsigned int code_so_far,  int bits,  int node )
 {
     if ( node <= END_OF_STREAM ) {
 	codes[ node ].code = code_so_far;
@@ -422,17 +238,7 @@ int node;
     convert_tree_to_code( nodes, codes, code_so_far | 1,
                           bits, nodes[ node ].child_1 );
 }
-/*
- * If the -d command line option is specified, this routine is called
- * to print out some of the model information after the tree is built.
- * Note that this is the only place that the saved_count NODE element
- * is used for anything at all, and in this case it is just for
- * diagnostic information.  By the time I get here, and the tree has
- * been built, every active element will have 0 in its count.
- */
-void print_model( nodes, codes )
-NODE *nodes;
-CODE *codes;
+void print_model ( NODE *nodes,  CODE *codes )
 {
     int i;
 
@@ -454,13 +260,7 @@ CODE *codes;
     }
 }
 
-/*
- * The print_model routine uses this function to print out node numbers.
- * The catch is, if it is a printable character, it gets printed out
- * as a character.  Makes the debug output a little easier to read.
- */
-void print_char( c )
-int c;
+void print_char ( int c )
 {
     if ( c >= 0x20 && c < 127 )
         printf( "'%c'", c );
@@ -468,15 +268,7 @@ int c;
         printf( "%3d", c );
 }
 
-/*
- * Once the tree gets built, and the CODE table is built, compressing
- * the data is a breeze.  Each byte is read in, and its corresponding
- * Huffman code is sent out.
- */
-void compress_data( input, output, codes )
-FILE *input;
-BIT_FILE *output;
-CODE *codes;
+void compress_data ( FILE *input,  BIT_FILE *output,  CODE *codes )
 {
     int c;
 
@@ -487,20 +279,7 @@ CODE *codes;
 		codes[ END_OF_STREAM ].code_bits );
 }
 
-/*
- * Expanding compressed data is a little harder than the compression
- * phase.  As each new symbol is decoded, the tree is traversed,
- * starting at the root node, reading a bit in, and taking either the
- * child_0 or child_1 path.  Eventually, the tree winds down to a
- * leaf node, and the corresponding symbol is output.  If the symbol
- * is the END_OF_STREAM symbol, it doesn't get written out, and
- * instead the whole process terminates.
- */
-void expand_data( input, output, nodes, root_node )
-BIT_FILE *input;
-FILE *output;
-NODE *nodes;
-int root_node;
+void expand_data ( BIT_FILE *input,  FILE *output,  NODE *nodes,  int root_node )
 {
     int node;
 
@@ -518,4 +297,3 @@ int root_node;
             fatal_error( "Error trying to write expanded byte to output" );
     }
 }
-/*************************** End of HUFF.C **************************/

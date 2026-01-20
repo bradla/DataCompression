@@ -37,7 +37,7 @@ void close_all_the_files( void );
 int compress( const char *file_name );
 void usage_exit( void );
 
-int main( int argc, char *argv[] )
+void main( int argc, char *argv[] )
 {
     time_t start_time;
     time_t stop_time;
