@@ -6,6 +6,9 @@ ARITH1E_PROJ = csfiles/Arith1-e.csproj
 ARITH1eC_PROJ = csfiles/Arith1e-c.csproj
 ARITH1eE_PROJ = csfiles/Arith1e-e.csproj
 
+ARITHnC_PROJ = csfiles/Arith-n-c.csproj
+ARITHnE_PROJ = csfiles/Arith-n-e.csproj
+
 COMPANDC_PROJ = csfiles/Compand-c.csproj
 COMPANDE_PROJ = csfiles/Compand-e.csproj
 SILENCEC_PROJ = csfiles/Silence-c.csproj
@@ -38,7 +41,7 @@ OBJ_DIR = build/obj
 # -------------------------
 # Default target
 # -------------------------
-all: Carman Churn Arith Arith1 Arith1e Compand Silence Lzw15v Lzw12 Lzss Dct Gs Huff Ahuff
+all: Carman Churn Arith Arith-n Arith1 Arith1e Compand Silence Lzw15v Lzw12 Lzss Dct Gs Huff Ahuff
 
 # -------------------------
 # Build Targets
@@ -60,6 +63,11 @@ Arith1:
 Arith1e:
 	$(DOTNET) build $(ARITH1eC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 	$(DOTNET) build $(ARITH1eE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+	
+Arith-n:
+	$(DOTNET) build $(ARITHnC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+	$(DOTNET) build $(ARITHnE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
+
 Huff:
 	$(DOTNET) build $(HUFFC_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
 	$(DOTNET) build $(HUFFE_PROJ) -c Release -p:BaseOutputPath=$(BIN_DIR)/ -p:BaseIntermediateOutputPath=$(OBJ_DIR)/
