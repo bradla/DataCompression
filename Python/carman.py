@@ -1,5 +1,6 @@
 #Brad Arrington 2025
 import os
+import shutil
 import sys
 import struct
 import io
@@ -765,7 +766,19 @@ def main():
         cp.WriteEndOfCarHeader()
         if os.path.exists(cp.CarFileName):
             os.remove(cp.CarFileName)
-        os.rename(cp.TempFileName, cp.CarFileName)
+
+        try:
+            # Copy the file to the new location
+            shutil.copy2(cp.TempFileName, cp.CarFileName)  # copy2 preserves metadata like timestamps
+    
+            # Delete the original file
+            os.remove(cp.TempFileName)
+        except FileNotFoundError:
+            print(f"The file {cp.TempFileName} does not exist.")
+        except PermissionError:
+            print(f"You don't have permission to rename the file.")
+        except Exception as e:
+            print(f"An error occurred: {e}")
     
     print(f"\n{count} file{'s' if count != 1 else ''}\n")
 
