@@ -51,7 +51,6 @@ class CarProcessor:
         self.DataBuffer = bytearray(17)
         self.FlagBitMask = 0
         self.BufferOffset = 0
-        #self.UNUSED = 0
 
     def ModWindow(self, a: int) -> int:
         return a & (self.WINDOW_SIZE - 1)
@@ -151,12 +150,9 @@ class CarProcessor:
                 continue
                 
             try:
-                #if not os.path.exists(filename):
-                #    open(filename, 'wb').close()  # Create empty binary file
                 with open(filename, 'rb') as input_text_file:
                                         # Get just the filename without path
-                    base_name = os.path.basename(filename)
-                    
+                    base_name = os.path.basename(filename)                   
                     # Check for duplicates
                     skip = False
                     for j in range(i):
@@ -223,18 +219,6 @@ class CarProcessor:
             self.OutputCarFile = open(self.TempFileName, 'wb')
 
     def WildCardMatch(self, text: str, pattern: str) -> bool:
-        """
-        Compares a string to a wildcard pattern, looking for a match.
-        Wildcard characters supported are '*' and '?', where '*' represents
-        a string of any length (including 0), and '?' represents any single character.
-
-        Args:
-            text (str): The string to compare.
-            pattern (str): The wildcard pattern.
-
-        Returns:
-            bool: True if the text matches the pattern, False otherwise.
-        """
         n = len(text)
         m = len(pattern)
         dp = [[False] * (m + 1) for _ in range(n + 1)]
@@ -251,8 +235,6 @@ class CarProcessor:
                     dp[i][j] = dp[i - 1][j - 1]
 
         return dp[n][m]
-        #import fnmatch
-        #return fnmatch.fnmatch(text, pattern)
 
     def SearchFileList(self, fileName: str) -> int:
         for filePattern in self.FileList:
@@ -298,16 +280,9 @@ class CarProcessor:
 
         if not self.OutputCarFile:
             return
-            
-        # Write filename with null terminator
+
         filename_bytes = self.Header.FileName.encode('ascii') + b'\x00'
         self.OutputCarFile.write(filename_bytes)
-        
-        # Prepare header data
-        #header_data[0] = self.Header.CompressionMethod
-        #header_data[1:5] = self.Header.OriginalSize.to_bytes(4, 'little')
-        #header_data[5:9] = self.Header.CompressedSize.to_bytes(4, 'little')
-        #header_data[9:13] = self.Header.OriginalCrc.to_bytes(4, 'little')
         self.PackUnsignedData(1, self.Header.CompressionMethod, header_data, 0);
         self.PackUnsignedData(4, self.Header.OriginalSize, header_data, 1);
         self.PackUnsignedData(4, self.Header.CompressedSize, header_data, 5);
@@ -315,10 +290,10 @@ class CarProcessor:
 
         self.HeaderCrc = self.CalculateBlockCRC32(13, self.CrcMask, header_data)
         self.HeaderCrc ^= self.CrcMask
-        #header_data[13:17] = self.Header.HeaderCrc.to_bytes(4, 'little')
+
         self.PackUnsignedData(4, self.Header.HeaderCrc, header_data, 13);
 
-        self.OutputCarFile.write(header_data)
+        self.OutputCarFile.write(header_data);
 
     def PackUnsignedData(self, number_of_bytes, number, buffer, offset):
         for i in range(number_of_bytes):
@@ -466,11 +441,6 @@ class CarProcessor:
         temp2 = self.Ccitt32Table[(crc ^ c) & 0xFF]
         return temp1 ^ temp2
 
-    #def FatalError(self, message: str, *args):
-    #    print(message % args, file=sys.stderr)
-    #    sys.exit(1)
-
-    # LZSS Compression and Expansion Methods
     def InitTree(self, r: int):
         for i in range(self.WINDOW_SIZE + 1):
             self.Tree[i].Parent = self.UNUSED
@@ -527,16 +497,15 @@ class CarProcessor:
             self.DeleteString(replacement)
             self.ReplaceNode(p, replacement)
 
-    def AddString(self, newNode: int) -> Tuple[int, int]:
+    def AddString(self, newNode: int, match_position: int) -> Tuple[int, int]:
         if newNode == self.END_OF_STREAM:
             return (0, 0)
             
         testNode = self.Tree[self.TREE_ROOT].LargerChild
         match_length = 0
-        match_position = 0
+        #match_position = 0
         
         while True:
-            # Find how many characters match
             i = 0
             delta = 0
             while i < self.LOOK_AHEAD_SIZE:
@@ -621,9 +590,6 @@ class CarProcessor:
             self.InitInputBuffer()
         self.FlagBitMask <<= 1;
         return ((self.DataBuffer[0]) & (self.FlagBitMask >> 1))
-        #bit = (self.DataBuffer[0] & self.FlagBitMask) != 0
-        #self.FlagBitMask <<= 1
-        #return bit
 
     def LZSSCompress(self, input_text_file) -> int:
         self.Header.CompressedSize = 0
@@ -637,7 +603,7 @@ class CarProcessor:
         i = 0
         for i in range(self.LOOK_AHEAD_SIZE):
             byte = input_text_file.read(1)
-            if not byte:
+            if byte == -1:
                 break
             self.Window[current_position + i] = byte[0]
             self.Header.OriginalCrc = self.UpdateCharacterCRC32(self.Header.OriginalCrc, byte[0])
@@ -684,7 +650,7 @@ class CarProcessor:
                     print('.', end='', file=sys.stderr)
                 
                 if look_ahead_bytes > 0:
-                    match_length, match_position = self.AddString(current_position)
+                    match_length, match_position = self.AddString(current_position, match_position)
         
         self.Header.OriginalCrc ^= self.CrcMask
         return self.FlushOutputBuffer()
@@ -770,8 +736,7 @@ def main():
         try:
             # Copy the file to the new location
             shutil.copy2(cp.TempFileName, cp.CarFileName)  # copy2 preserves metadata like timestamps
-    
-            # Delete the original file
+
             os.remove(cp.TempFileName)
         except FileNotFoundError:
             print(f"The file {cp.TempFileName} does not exist.")
