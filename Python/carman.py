@@ -9,16 +9,18 @@ import io
 from typing import List, Optional, Tuple
 from weakref import ref
 
+#from lzss import UNUSED
+
 class CarProcessor:
     UNUSED = 0
     INDEX_BIT_COUNT = 12
     LENGTH_BIT_COUNT = 4
-    WINDOW_SIZE = 1 << INDEX_BIT_COUNT
+    WINDOW_SIZE = (1 << INDEX_BIT_COUNT)
     TREE_ROOT = WINDOW_SIZE
     RAW_LOOK_AHEAD_SIZE = 1 << LENGTH_BIT_COUNT
     END_OF_STREAM = 0
     BREAK_EVEN = (1 + INDEX_BIT_COUNT + LENGTH_BIT_COUNT) // 9
-    LOOK_AHEAD_SIZE = RAW_LOOK_AHEAD_SIZE + BREAK_EVEN
+    LOOK_AHEAD_SIZE = (RAW_LOOK_AHEAD_SIZE + BREAK_EVEN)
     BaseHeaderSize = 19
     CrcMask = 0xFFFFFFFF
     Crc32Polynomial = 0xEDB88320
@@ -36,6 +38,7 @@ class CarProcessor:
             self.HeaderCrc = 0
 
     class TreeNode:
+        __slots__ = ['Parent', 'SmallerChild', 'LargerChild']
         def __init__(self):
             self.Parent = 0
             self.SmallerChild = 0
@@ -447,10 +450,10 @@ class CarProcessor:
         return temp1 ^ temp2
 
     def InitTree(self, r: int):
-        for i in range(self.WINDOW_SIZE + 1):
-            self.Tree[i].Parent = self.UNUSED
-            self.Tree[i].LargerChild = self.UNUSED
-            self.Tree[i].SmallerChild = self.UNUSED
+        #for i in range(self.WINDOW_SIZE + 1):
+        #    self.Tree[i].Parent = self.UNUSED
+        #    self.Tree[i].LargerChild = self.UNUSED
+        #    self.Tree[i].SmallerChild = self.UNUSED
         
         self.Tree[self.TREE_ROOT].LargerChild = r
         self.Tree[r].Parent = self.TREE_ROOT
@@ -473,15 +476,27 @@ class CarProcessor:
         else:
             self.Tree[parent].LargerChild = new_node
         
-        self.Tree[new_node] = self.Tree[old_node]
-        smaller = self.Tree[new_node].SmallerChild
-        larger = self.Tree[new_node].LargerChild
-        if smaller != self.UNUSED:
-            self.Tree[smaller].Parent = new_node
-        if larger != self.UNUSED:
-            self.Tree[larger].Parent = new_node
+        	# Copy all attributes from old_node to new_node
+        self.Tree[new_node].Parent = self.Tree[old_node].Parent
+        self.Tree[new_node].SmallerChild = self.Tree[old_node].SmallerChild
+        self.Tree[new_node].LargerChild = self.Tree[old_node].LargerChild
+        
+            # Update parent references of children
+        if self.Tree[new_node].SmallerChild != self.UNUSED:
+            self.Tree[self.Tree[new_node].SmallerChild].Parent = new_node
+        if self.Tree[new_node].LargerChild != self.UNUSED:
+            self.Tree[self.Tree[new_node].LargerChild].Parent = new_node
         
         self.Tree[old_node].Parent = self.UNUSED
+        # self.Tree[new_node] = self.Tree[old_node]
+        # smaller = self.Tree[new_node].SmallerChild
+        # larger = self.Tree[new_node].LargerChild
+        # if smaller != self.UNUSED:
+        #     self.Tree[smaller].Parent = new_node
+        # if larger != self.UNUSED:
+        #     self.Tree[larger].Parent = new_node
+        
+        # self.Tree[old_node].Parent = self.UNUSED
 
     def FindNextNode(self, node: int) -> int:
         next_node = self.Tree[node].SmallerChild
@@ -503,22 +518,23 @@ class CarProcessor:
             self.ReplaceNode(p, replacement)
 
     def AddString(self, newNode: int, match_position: int) -> int:           
-        testNode = self.Tree[self.TREE_ROOT].LargerChild
-        match_length = 0
-        match_position = 0
-        delta = 0
+        num=0
+
+        #if len(self.data1) == 524:
+        #    print("Debug Break")
 
         if newNode == self.END_OF_STREAM:
-            return (0)
+            return
+        testNode = self.Tree[self.TREE_ROOT].LargerChild
+        match_length = 0
+
         while True:
             i = 0
-            #print("here")
             while i < self.LOOK_AHEAD_SIZE:
                 indexNew  = self.ModWindow(newNode + i)
                 indexTest  = self.ModWindow(testNode + i)
                 delta = self.Window[indexNew] - self.Window[indexTest]
                 if delta != 0:
-                    #print("break2")
                     break
                 i += 1
             
@@ -545,6 +561,7 @@ class CarProcessor:
                 self.Tree[newNode].SmallerChild = self.UNUSED
                 return match_length
             testNode = child
+            num+=1
 
     def InitOutputBuffer(self):
         self.DataBuffer[0] = 0
@@ -594,32 +611,39 @@ class CarProcessor:
 
     def LZSSCompress(self, input_text_file) -> int:
         self.Header.CompressedSize = 0
-        match_length = 0
-        match_position = 0
-        cnt = 0
+        look_ahead_bytes: int = 0
+        current_position: int = 1
+        replace_count: int
+        match_length: int = 0
+        match_position: int
+        cnt: int = 0
         self.Header.OriginalCrc = self.CrcMask
         self.InitOutputBuffer()
-        #data1 = defaultdict(list)
-        current_position = 1
-        
+
         # Fill initial window
         look_ahead_bytes = 0
         i = 0
+
         while i < self.LOOK_AHEAD_SIZE: # to get i = correct after loop
             byte = input_text_file.read(1)
-            if byte == -1:
+            if byte == b'':
                 break
+
             self.Window[current_position + i] = byte[0]
             self.Header.OriginalCrc = self.UpdateCharacterCRC32(self.Header.OriginalCrc, byte[0])
             i += 1
         
         look_ahead_bytes = i   
         self.InitTree(current_position)
-        
+        match_length = 0
+        match_position = 0
+
         while look_ahead_bytes > 0:
+            if match_length == None: # python sets match_length to None sometimes for some reason
+                match_length = 0
             if match_length > look_ahead_bytes:
                 match_length = look_ahead_bytes
-                
+
             if match_length <= self.BREAK_EVEN:
                 replace_count = 1
                 # Output single character
@@ -634,8 +658,8 @@ class CarProcessor:
             
             # Replace replace_count bytes in the window
             i = 0
-            
             while i < replace_count:
+
                 # Delete old string
                 self.DeleteString(self.ModWindow(current_position + self.LOOK_AHEAD_SIZE))
                 
@@ -645,7 +669,6 @@ class CarProcessor:
                 if byte == b'':
                     look_ahead_bytes -= 1
                 else:
-                    self.data1[cnt].append(byte[0])
                     self.Header.OriginalCrc = self.UpdateCharacterCRC32(self.Header.OriginalCrc, byte[0])
                     self.Window[self.ModWindow(current_position + self.LOOK_AHEAD_SIZE)] = byte[0]
                 
