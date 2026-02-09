@@ -8,8 +8,7 @@ import struct
 import io
 from typing import List, Optional, Tuple
 from weakref import ref
-
-#from lzss import UNUSED
+import zlib
 
 class CarProcessor:
     UNUSED = 0
@@ -17,7 +16,7 @@ class CarProcessor:
     LENGTH_BIT_COUNT = 4
     WINDOW_SIZE = (1 << INDEX_BIT_COUNT)
     TREE_ROOT = WINDOW_SIZE
-    RAW_LOOK_AHEAD_SIZE = 1 << LENGTH_BIT_COUNT
+    RAW_LOOK_AHEAD_SIZE = (1 << LENGTH_BIT_COUNT)
     END_OF_STREAM = 0
     BREAK_EVEN = (1 + INDEX_BIT_COUNT + LENGTH_BIT_COUNT) // 9
     LOOK_AHEAD_SIZE = (RAW_LOOK_AHEAD_SIZE + BREAK_EVEN)
@@ -29,6 +28,7 @@ class CarProcessor:
     Ccitt32TableSize = 256
 
     class HeaderStruct:
+        __slots__ = ['FileName', 'CompressionMethod', 'OriginalSize', 'CompressedSize','OriginalCrc', 'HeaderCrc']
         def __init__(self):
             self.FileName = ""
             self.CompressionMethod = 0
@@ -191,11 +191,11 @@ class CarProcessor:
         elif command == 'l':
             print("Listing archive contents")
         elif command == 'a':
-            if len(argv) <= 2:
+            if len(argv) <= 3:
                 self.UsageExit()
             print("Adding/replacing files to archive")
         elif command == 'd':
-            if len(argv) <= 2:
+            if len(argv) <= 3:
                 self.UsageExit()
             print("Deleting files from archive")
         else:
@@ -253,10 +253,13 @@ class CarProcessor:
             return 0
         result = (100 * compressed) // original
         return 100 - result
-
+   
     def ReadFileHeader(self) -> int:
         # Read filename (null-terminated)
         filename_bytes = bytearray()
+        header_crc = 0
+        i = 0
+
         while True:
             byte = self.InputCarFile.read(1)
             if not byte or byte == b'\x00':
@@ -266,8 +269,11 @@ class CarProcessor:
         if not filename_bytes:
             return 0
             
+        filename_bytes.append(0)  # Append null terminator for CRC calculation
         self.Header.FileName = filename_bytes.decode('ascii', errors='replace')
-        
+
+        # Calculate CRC of the file name
+        header_crc = self.CalculateBlockCRC32(len(self.Header.FileName), self.CrcMask, self.Header.FileName.encode())
         # Read the rest of the header
         header_data = self.InputCarFile.read(17)
         if len(header_data) != 17:
@@ -279,6 +285,15 @@ class CarProcessor:
         self.Header.OriginalCrc = int.from_bytes(header_data[9:13], 'little')
         self.Header.HeaderCrc = int.from_bytes(header_data[13:17], 'little')
         
+        # Calculate CRC for the header data
+        header_crc = self.CalculateBlockCRC32(13, header_crc, header_data)
+        header_crc ^= self.CrcMask
+    
+        # Check the header CRC against the stored value
+        if self.Header.HeaderCrc != header_crc:
+            print(f"2 Header checksum error for file {self.Header.FileName} orig: {self.Header.OriginalCrc:08X} stored: {self.Header.HeaderCrc:08X} calculated: {header_crc:08X}")
+            exit(1)
+        
         return 1
 
     def WriteFileHeader(self):
@@ -288,6 +303,7 @@ class CarProcessor:
             return
 
         filename_bytes = self.Header.FileName.encode('ascii') + b'\x00'
+
         self.OutputCarFile.write(filename_bytes)
         self.Header.HeaderCrc = self.CalculateBlockCRC32(len(filename_bytes), self.CrcMask, filename_bytes)
 
@@ -300,7 +316,7 @@ class CarProcessor:
         self.Header.HeaderCrc ^= self.CrcMask
 
         self.PackUnsignedData(4, self.Header.HeaderCrc, header_data, 13);
-
+        
         self.OutputCarFile.write(header_data);
 
     def PackUnsignedData(self, number_of_bytes, number, buffer, offset):
@@ -334,11 +350,11 @@ class CarProcessor:
             inputTextFile.seek(0)
             self.Store(inputTextFile)
         
-        if self.OutputCarFile:
-            self.OutputCarFile.seek(savedPositionOfHeader)
-            self.WriteFileHeader()
-            self.OutputCarFile.seek(0, 2)  # Seek to end
-        
+        #if self.OutputCarFile:
+        self.OutputCarFile.seek(savedPositionOfHeader)
+        self.WriteFileHeader()
+        self.OutputCarFile.seek(0, 2)  # Seek to end
+
         print(f"{self.RatioInPercent(self.Header.CompressedSize, self.Header.OriginalSize)}%")
 
     def Extract(self, destination):
@@ -438,23 +454,22 @@ class CarProcessor:
             self.Ccitt32Table[i] = value
 
     def CalculateBlockCRC32(self, count: int, crc: int, buffer: bytes) -> int:
-        for i in range(count):
+        i = 0
+        p = iter(buffer)  # Create an iterator for the buffer
+        while count != 0:
             temp1 = (crc >> 8) & 0x00FFFFFF
-            temp2 = self.Ccitt32Table[(crc ^ buffer[i]) & 0xFF]
+            temp2 = self.Ccitt32Table[(crc ^ next(p)) & 0xFF]
             crc = temp1 ^ temp2
+            i += 1
+            count -= 1
         return crc
-
+    
     def UpdateCharacterCRC32(self, crc: int, c: int) -> int:
         temp1 = (crc >> 8) & 0x00FFFFFF
         temp2 = self.Ccitt32Table[(crc ^ c) & 0xFF]
         return temp1 ^ temp2
 
-    def InitTree(self, r: int):
-        #for i in range(self.WINDOW_SIZE + 1):
-        #    self.Tree[i].Parent = self.UNUSED
-        #    self.Tree[i].LargerChild = self.UNUSED
-        #    self.Tree[i].SmallerChild = self.UNUSED
-        
+    def InitTree(self, r: int):      
         self.Tree[self.TREE_ROOT].LargerChild = r
         self.Tree[r].Parent = self.TREE_ROOT
         self.Tree[r].LargerChild = self.UNUSED
@@ -488,15 +503,6 @@ class CarProcessor:
             self.Tree[self.Tree[new_node].LargerChild].Parent = new_node
         
         self.Tree[old_node].Parent = self.UNUSED
-        # self.Tree[new_node] = self.Tree[old_node]
-        # smaller = self.Tree[new_node].SmallerChild
-        # larger = self.Tree[new_node].LargerChild
-        # if smaller != self.UNUSED:
-        #     self.Tree[smaller].Parent = new_node
-        # if larger != self.UNUSED:
-        #     self.Tree[larger].Parent = new_node
-        
-        # self.Tree[old_node].Parent = self.UNUSED
 
     def FindNextNode(self, node: int) -> int:
         next_node = self.Tree[node].SmallerChild
@@ -518,11 +524,6 @@ class CarProcessor:
             self.ReplaceNode(p, replacement)
 
     def AddString(self, newNode: int, match_position: int) -> int:           
-        num=0
-
-        #if len(self.data1) == 524:
-        #    print("Debug Break")
-
         if newNode == self.END_OF_STREAM:
             return
         testNode = self.Tree[self.TREE_ROOT].LargerChild
@@ -561,7 +562,6 @@ class CarProcessor:
                 self.Tree[newNode].SmallerChild = self.UNUSED
                 return match_length
             testNode = child
-            num+=1
 
     def InitOutputBuffer(self):
         self.DataBuffer[0] = 0
